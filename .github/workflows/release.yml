@@ -88,8 +88,21 @@ jobs:
         run: |
           set -eux
           mkdir -p release
-          find artifacts -type f \( -name "video2script*" -o -name "*.whl" -o -name "*.tar.gz" \) \
-            -exec cp {} release/ \;
+          cp artifacts/dist/* release/
+          # macOS 与 Linux 的产物同名（都没有 .exe），必须按平台改名，否则会互相覆盖
+          for d in artifacts/exe-*; do
+            [ -d "$d" ] || continue
+            plat=$(basename "$d" | sed -e 's/^exe-//' -e 's/-latest$//')
+            [ "$plat" = "ubuntu" ] && plat=linux
+            for f in "$d"/*; do
+              [ -f "$f" ] || continue
+              base=$(basename "$f")
+              case "$base" in
+                *.exe) cp "$f" "release/${base%.exe}-${plat}.exe" ;;
+                *)     cp "$f" "release/${base}-${plat}" ;;
+              esac
+            done
+          done
           ls -la release/
       - uses: softprops/action-gh-release@v2
         with:

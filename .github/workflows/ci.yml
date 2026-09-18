@@ -23,7 +23,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
       # 规则层是纯标准库实现：只装 dev 组（pytest/pillow），不拉 ctranslate2/faster-whisper
       # --locked：锁文件与 pyproject 不一致就直接失败（防止有人改了依赖忘了 uv lock）
-      - run: uv sync --locked --no-install-project
+      - run: uv sync --locked --only-group dev
       - run: uv run --no-sync pytest -q
         env:
           PYTHONPATH: src

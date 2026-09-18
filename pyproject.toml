@@ -33,6 +33,9 @@ dev = ["pytest>=7,<9", "pillow>=10,<13"]
 [tool.uv]
 # 云端 CI 与本地都希望 uv 直接管理 .venv；不做 editable 之外的额外处理
 package = true
+# onnxruntime（faster-whisper 的 VAD 依赖）从 1.20 起不再提供 cp39 wheel，
+# 给它单独钉一个上限，让锁文件里同时保留 py3.9 与 py>=3.10 两套解析结果。
+constraint-dependencies = ["onnxruntime<1.20; python_version < '3.10'"]
 
 [project.scripts]
 video2script = "video2script.main:main"

@@ -30,6 +30,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - `scripts/gui_smoke.py`: end-to-end check that starts the real server (page hooks, Range preview,
   upload, monotonic progress, artifacts, output-folder reveal).
 
+### Fixed
+
+- The lockfile now covers the whole supported Python range: `onnxruntime` (faster-whisper's VAD
+  dependency) stopped shipping cp39 wheels at 1.20, so `[tool.uv] constraint-dependencies` pins
+  `<1.20` for Python < 3.10 and `uv.lock` carries per-version resolutions (1.19.2 / 1.24.3 / 1.30.0).
+  The rule-layer CI job installs only the dev group (`uv sync --locked --only-group dev`), so it stays
+  fast while still verifying the lock.
+
 ### Changed
 
 - The GUI page moved out of `gui.py` into `src/video2script/assets/gui.html` — editable and

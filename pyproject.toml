@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video2script"
-version = "0.2.0"
+version = "0.3.0"
 description = "Video/audio to transcript with fillers, stutters and repetitions removed — CPU-only, explainable rules, CLI + local web GUI"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,23 +20,29 @@ classifiers = [
 dependencies = ["faster-whisper>=1.0,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7,<9"]
+dev = ["pytest>=7,<9", "pillow>=10,<13"]
 diar = ["sherpa-onnx>=1.10,<2"]
-build = ["pyinstaller>=6,<7"]
+build = ["pyinstaller>=6,<7", "pillow>=10,<13"]
 all = ["video2script[dev,diar,build]"]
 
 [project.scripts]
-video2script = "video2script.cli:main"
+video2script = "video2script.main:main"
+# 兼容保留：等价于 `video2script --gui`
 video2script-gui = "video2script.gui:main"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/video2script"
+Homepage = "https://github.com/Weidows/video2script"
+Changelog = "https://github.com/Weidows/video2script/blob/master/CHANGELOG.md"
+Issues = "https://github.com/Weidows/video2script/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+video2script = ["assets/*.png", "assets/*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

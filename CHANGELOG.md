@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-18
+
+### Added
+
+- **Unified entry point.** A single `video2script` command now serves both interfaces:
+  no arguments → local web GUI, file arguments → CLI. `--gui` / `--cli` force a mode,
+  `--gui FILE` opens the GUI with that file already loaded (`?job=<id>`), `--version` prints the
+  version. Dispatch logic is a pure function (`main.decide_mode`) with its own tests.
+- **Application icon**, generated from code (`scripts/make_icon.py`, Pillow only): gradient rounded
+  square with a waveform, text lines and a play badge; per-size simplified layouts for
+  16/24/32 px so the small variants stay legible. Shipped as `icon.png` / `icon.ico`, embedded in
+  packaged binaries and served as the GUI favicon (`/favicon.ico`, `/icon.png`).
+- `--add-data` asset bundling for frozen builds; `pillow` added to the `dev` / `build` extras.
+
+### Changed
+
+- **One standalone binary per platform** instead of two — CLI and GUI live in the same executable.
+  Release assets are now `video2script-windows.exe` / `video2script-macos` / `video2script-linux`.
+- `video2script-gui` remains as an alias of `video2script --gui` (existing scripts keep working).
+- `python -m video2script` dispatches exactly like the `video2script` command.
+- `video2script.cmd`: drag a file onto it → CLI; double-click → GUI (the separate
+  `video2script-gui.cmd` was removed).
+- READMEs gained the logo and a "one command, two modes" table.
+
 ## [0.2.0] — 2026-09-18
 
 First public release (0.1.0 existed only during initial development and was never tagged; it is
@@ -56,6 +80,7 @@ listed below for completeness, linked to its commit).
   `.txt`/`.srt`/`.md` outputs, `report.json` deletion log, `--cut` video tightening,
   optional LLM polish pass, 21 pure-function tests and CI on 3 OS × py3.9/3.12.
 
-[Unreleased]: https://github.com/Weidows/video2script/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Weidows/video2script/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Weidows/video2script/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Weidows/video2script/compare/c28487a...v0.2.0
 [0.1.0]: https://github.com/Weidows/video2script/commit/c28487a

@@ -26,26 +26,25 @@ jobs:
           cache: pip
       - name: Install build deps
         run: pip install -e ".[build]"
-      - name: Build standalone binaries
+      - name: Generate icon
+        run: python scripts/make_icon.py
+      - name: Build standalone binary
         run: python scripts/build_exe.py
-      - name: Smoke test
+      - name: Smoke test (one binary serves CLI + GUI)
         shell: bash
         run: |
           set -eux
           BIN=dist/video2script
           if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
-          "$BIN" --help
-          GUI=dist/video2script-gui
-          if [ -f "$GUI.exe" ]; then GUI="$GUI.exe"; fi
-          "$GUI" --help
+          "$BIN" --version
+          "$BIN" --help                 # CLI 帮助
+          "$BIN" --gui --help           # 同一个可执行文件的 GUI 入口
       - uses: actions/upload-artifact@v4
         with:
           name: exe-${{ matrix.os }}
           path: |
             dist/video2script
             dist/video2script.exe
-            dist/video2script-gui
-            dist/video2script-gui.exe
           if-no-files-found: error
 
   dist:

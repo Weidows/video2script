@@ -78,3 +78,19 @@ def force_utf8_stdio() -> None:
         except (AttributeError, OSError, ValueError):
             pass
 
+
+# 打包资源目录（图标等）。
+# 冻结成可执行文件后，模块在 PYZ 里、__file__ 不再指向真实路径，必须走 sys._MEIPASS；
+# 源码运行时就是 src/video2script/assets。
+def _assets_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        cand = base / "video2script" / "assets"
+        if cand.is_dir():
+            return cand
+        return base / "assets"
+    return Path(__file__).resolve().parent / "assets"
+
+
+ASSETS_DIR = _assets_dir()
+

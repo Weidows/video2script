@@ -47,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="把字幕烧进画面 *_subtitled.mp4（需 ffmpeg，隐含 --ass）")
     p.add_argument("--ass-font", default="Microsoft YaHei", help="ASS 字体名")
     p.add_argument("-q", "--quiet", action="store_true")
+    p.epilog = ("示例： video2script 会议.mp4 --model medium --level 2 --cut\n"
+                "         video2script --gui 会议.mp4   # 打开网页界面并预载该文件\n"
+                "         video2script                  # 不带参数 = 直接启动网页界面")
     return p
 
 

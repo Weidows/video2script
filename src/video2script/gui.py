@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
-from .config import force_utf8_stdio, open_folder
+from .config import ASSETS_DIR, force_utf8_stdio, open_folder
 from .pipeline import LEVELS, MODELS, Options, Result, run
 
 # 同一时间只跑一个转写任务（CPU 推理本来就吃满核心）
@@ -30,6 +30,8 @@ WORKDIR = Path.home() / ".cache" / "video2script" / "jobs"
 PAGE = r"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>video2script · 视频转文稿</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/icon.png">
 <style>
  *{box-sizing:border-box}
  body{margin:0;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;
@@ -130,6 +132,17 @@ async function up(file){
   job=j.id; $('fname').textContent='已选择：'+file.name; $('go').disabled=false;
   $('log').textContent='准备就绪，点「开始转写」。';
 }
+// 由 `video2script --gui 文件.mp4` 预载的任务：?job=<id>
+(async function(){
+  const pre=new URLSearchParams(location.search).get('job');
+  if(!pre)return;
+  const r=await fetch('/api/status?id='+pre);
+  if(!r.ok)return;
+  const s=await r.json();
+  job=pre; $('go').disabled=false;
+  $('fname').textContent='已载入：'+(s.log&&s.log[0]?s.log[0].replace(/^已接收\s*/,''):pre);
+  $('log').textContent='文件已就绪，选好参数点「开始转写」。';
+})();
 $('go').onclick=async()=>{
   if(!job)return;
   $('go').disabled=true; $('result').style.display='none';
@@ -244,11 +257,25 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n else b""
 
     # ---- routes
+    ASSETS = {"/favicon.ico": ("icon.ico", "image/x-icon"),
+              "/icon.png": ("icon.png", "image/png"),
+              "/icon-32.png": ("icon-32.png", "image/png"),
+              "/icon-16.png": ("icon-16.png", "image/png")}
+
+    def _serve_asset(self, path: str):
+        name, ctype = self.ASSETS[path]
+        f = ASSETS_DIR / name
+        if not f.exists():                      # 源码运行且没生成图标时不该 500
+            return self._json({"error": "icon not generated"}, 404)
+        return self._send(200, f.read_bytes(), ctype, {"Cache-Control": "max-age=86400"})
+
     def do_GET(self):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             return self._send(200, PAGE.replace("__VER__", __version__).encode(),
                               "text/html; charset=utf-8")
+        if u.path in self.ASSETS:
+            return self._serve_asset(u.path)
         if u.path == "/api/status":
             jid = (parse_qs(u.query).get("id") or [""])[0]
             job = JOBS.get(jid)
@@ -343,17 +370,37 @@ def main(argv: list[str] | None = None) -> int:
 
     force_utf8_stdio()
     ap = argparse.ArgumentParser(prog="video2script-gui",
-                                 description="video2script 的本地网页界面")
+                                 description="video2script 的本地网页界面"
+                                             "（等价于 `video2script --gui`）")
+    ap.add_argument("video", nargs="?", type=Path,
+                    help="可选：启动后把这个文件预载进界面")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8756)
     ap.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
     a = ap.parse_args(argv)
 
     WORKDIR.mkdir(parents=True, exist_ok=True)
+
+    # --gui <文件> 时把文件直接注册成待跑任务，界面上就不用再拖一次
+    preload = ""
+    if a.video:
+        if not a.video.exists():
+            print(f"! 找不到文件：{a.video}", file=sys.stderr)
+        else:
+            v = a.video.resolve()
+            jid = uuid.uuid4().hex[:12]
+            job = Job(jid, v, Path(str(v.with_suffix("")) + "_transcript"))
+            with JOBS_LOCK:
+                JOBS[jid] = job
+            job.add(f"已接收 {v.name}（{v.stat().st_size / 1e6:.1f} MB，命令行预载）")
+            preload = f"?job={jid}"
+
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
-    url = f"http://{a.host}:{a.port}/"
+    url = f"http://{a.host}:{a.port}/{preload}"
     print(f"video2script GUI on {url}  (Ctrl+C 退出)")
     print(f"任务目录：{WORKDIR}")
+    if a.video and preload:
+        print(f"已预载：{a.video}  → 在页面上选参数后点「开始转写」")
     if a.open:
         threading.Thread(target=lambda: (time.sleep(0.6), webbrowser.open(url)),
                          daemon=True).start()

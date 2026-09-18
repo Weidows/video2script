@@ -10,6 +10,6 @@ from .clean import Segment, Word, norm, smooth
 from .config import DEFAULT_MODEL_DIR, find_ffmpeg, use_hf_mirror
 from .pipeline import Options, run
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = ["Options", "run", "Segment", "Word", "norm", "smooth",
            "find_ffmpeg", "use_hf_mirror", "DEFAULT_MODEL_DIR", "__version__"]

@@ -1,5 +1,7 @@
 # video2script
 
+<img src="src/video2script/assets/icon.png" width="96" align="right" alt="video2script 图标">
+
 [![CI](https://img.shields.io/github/actions/workflow/status/Weidows/video2script/ci.yml?branch=master&label=CI)](https://github.com/Weidows/video2script/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Weidows/video2script?label=release&sort=semver)](https://github.com/Weidows/video2script/releases)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
@@ -74,18 +76,29 @@ pip install -e ".[diar]"                            # 追加说话人分离（sh
 
 | Release 产物 | 平台 | 说明 |
 |---|---|---|
-| `video2script-windows.exe` · `video2script-gui-windows.exe` | Windows | 直接运行，免安装 |
-| `video2script-macos` · `video2script-gui-macos` | macOS | 未签名，首次运行请右键 → 打开 |
-| `video2script-linux` · `video2script-gui-linux` | Linux | 先 `chmod +x` |
+| `video2script-windows.exe` | Windows | 双击 = 网页界面，把文件拖到它上面 = 命令行 |
+| `video2script-macos` | macOS | 未签名，首次运行请右键 → 打开 |
+| `video2script-linux` | Linux | 先 `chmod +x` |
 | `video2script-<版本>-py3-none-any.whl` | 任意 | `pip install <wheel>` |
 
-GUI 版启动后浏览器打开 `http://127.0.0.1:8756`。
+一个可执行文件两种用法：不带参数双击打开网页界面（`http://127.0.0.1:8756`），
+带文件参数则在命令行转写。
 
 模型权重在首次使用时下载到 `~/.cache/video2script/models`（可用 `V2S_MODEL_DIR` 改）：
 `small` ≈ 0.5 GB、`medium` ≈ 1.5 GB、说话人模型 ≈ 35 MB。
 `huggingface.co` 不通时会自动回落 `hf-mirror.com`（可用 `HF_ENDPOINT` 覆盖）。
 
 ## 快速开始
+
+**一个命令，两种模式** —— 不带参数启动网页界面，带文件参数走命令行。
+
+| 命令 | 行为 |
+|---|---|
+| `video2script` | 启动本地网页 GUI，并打印地址 |
+| `video2script 会议.mp4 …` | 命令行转写 |
+| `video2script --gui 会议.mp4` | 打开界面并把该文件预载好 |
+| `video2script --cli 会议.mp4` | 强制走命令行（脚本里保证语义明确） |
+| `video2script --version` | 打印版本 |
 
 ### 命令行
 
@@ -113,11 +126,15 @@ python -m video2script 会议.mp4                   # 不装 entry point 也能�
 ### 图形界面
 
 ```bash
-video2script-gui --open        # http://127.0.0.1:8756
+video2script                      # 不带参数 → 启动网页界面（http://127.0.0.1:8756）
+video2script --gui 会议.mp4       # 打开界面并预载这个文件
+video2script --gui --open         # 顺便自动打开浏览器
 ```
 
 拖入文件 → 选语言/模型/力度/字幕/说话人 → 边跑边看日志 → 逐字稿与清洗稿左右对照
 → 一键下载所有产物。服务只监听 `127.0.0.1`，音频和文本都不离开本机。
+
+`video2script-gui` 作为 `video2script --gui` 的别名保留，老脚本不用改。
 
 ### 作为库
 
@@ -134,10 +151,12 @@ print(res.clean_text, res.counts, res.speakers)
 
 ```bash
 pip install -e ".[build]"
-python scripts/build_exe.py        # 产物：dist/video2script(.exe)、dist/video2script-gui(.exe)
+python scripts/make_icon.py        # 重新生成图标（仓库里已包含，可选）
+python scripts/build_exe.py        # 产物：dist/video2script(.exe) —— 一个文件，CLI + GUI
 ```
 
-模型权重不打包，首次运行照常下载。
+模型权重不打包，首次运行照常下载。图标（PNG/ICO）在 `src/video2script/assets/`，
+会嵌进可执行文件（窗口图标）并作为网页界面的 favicon。
 
 ## 输出文件
 
@@ -241,9 +260,11 @@ src/video2script/
 ├── subtitles.py   # ASS 生成 + 烧录
 ├── diarize.py     # sherpa-onnx 说话人分离、模型下载、说话人归属
 ├── pipeline.py    # 编排：转写 → 顺滑 → 说话人 → 渲染
-├── cli.py         # `video2script`
-├── gui.py         # `video2script-gui`（标准库 http.server + 内嵌页面）
-└── config.py      # 路径、HF 镜像回落、ffmpeg 探测
+├── main.py        # 统一入口：无参数 → GUI，带文件 → CLI
+├── cli.py         # 命令行解析（`video2script 文件.mp4`）
+├── gui.py         # `video2script --gui`（标准库 http.server + 内嵌页面）
+├── config.py      # 路径、HF 镜像回落、ffmpeg 探测、UTF-8 stdio
+└── assets/        # icon.png / icon.ico（由 scripts/make_icon.py 生成）
 ```
 
 ## 路线图

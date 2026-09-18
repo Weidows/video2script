@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -39,7 +40,9 @@ def main() -> int:
         return 2
 
     mode = "--onedir" if a.onedir else "--onefile"
-    common = [
+    icon = ROOT / "src" / "video2script" / "assets" / \
+        ("icon.ico" if sys.platform == "win32" else "icon.png")
+    args = [
         mode, "--noconfirm", "--clean",
         "--collect-all", "faster_whisper",   # 含 assets/silero VAD 的 onnx
         "--collect-all", "ctranslate2",
@@ -48,30 +51,21 @@ def main() -> int:
         "--collect-submodules", "onnxruntime",
         "--hidden-import", "huggingface_hub",
         "--paths", str(ROOT / "src"),
+        "--add-data", f"{ROOT / 'src' / 'video2script' / 'assets'}{os.pathsep}video2script/assets",
         "--name", "video2script",
-        # 必须用绝对导入的入口；相对导入的 cli.py 被当 __main__ 跑会 ImportError
+        # 绝对导入的入口；CLI 与 GUI 都在这里面（无参数 = GUI）
         str(ROOT / "src" / "video2script" / "__main__.py"),
     ]
-    # GUI 单独打一个（两个入口塞一个 spec 会互相覆盖）
-    gui = [
-        mode, "--noconfirm", "--clean",
-        "--collect-all", "faster_whisper",
-        "--collect-all", "ctranslate2",
-        "--collect-all", "tokenizers",
-        "--collect-all", "av",
-        "--collect-submodules", "onnxruntime",
-        "--hidden-import", "huggingface_hub",
-        "--paths", str(ROOT / "src"),
-        "--name", "video2script-gui",
-        str(ROOT / "scripts" / "entry_gui.py"),
-    ]
+    if icon.exists():
+        args += ["--icon", str(icon)]
+    else:
+        print(f"! 没有图标文件 {icon}，先跑 python scripts/make_icon.py", file=sys.stderr)
 
-    for args, label in ((common, "CLI"), (gui, "GUI")):
-        print(f"=== 打包 {label}（{platform.system()} / {platform.machine()}）")
-        r = subprocess.run([sys.executable, "-m", "PyInstaller", *args], cwd=str(ROOT))
-        if r.returncode != 0:
-            print(f"{label} 打包失败", file=sys.stderr)
-            return r.returncode
+    print(f"=== 打包（{platform.system()} / {platform.machine()}）")
+    r = subprocess.run([sys.executable, "-m", "PyInstaller", *args], cwd=str(ROOT))
+    if r.returncode != 0:
+        print("打包失败", file=sys.stderr)
+        return r.returncode
 
     if not a.keep:
         shutil.rmtree(ROOT / "build", ignore_errors=True)
@@ -82,6 +76,7 @@ def main() -> int:
     for p in sorted((ROOT / "dist").iterdir()):
         print(f"  {p.name}  {p.stat().st_size / 1e6:.1f} MB")
     print("\n注意：模型权重没有打进去，首次运行会下载到 ~/.cache/video2script/models")
+    print("用法：不带参数双击 = 网页 GUI；带文件参数 = 命令行转写")
     return 0
 
 

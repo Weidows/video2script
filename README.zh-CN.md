@@ -70,7 +70,16 @@ pip install -e .                                    # 核心：CLI + GUI
 pip install -e ".[diar]"                            # 追加说话人分离（sherpa-onnx）
 ```
 
-也可以直接从 [Releases](https://github.com/Weidows/video2script/releases) 下载免安装可执行文件。
+也可以直接从 [Releases](https://github.com/Weidows/video2script/releases) 下载免安装可执行文件：
+
+| Release 产物 | 平台 | 说明 |
+|---|---|---|
+| `video2script-windows.exe` · `video2script-gui-windows.exe` | Windows | 直接运行，免安装 |
+| `video2script-macos` · `video2script-gui-macos` | macOS | 未签名，首次运行请右键 → 打开 |
+| `video2script-linux` · `video2script-gui-linux` | Linux | 先 `chmod +x` |
+| `video2script-<版本>-py3-none-any.whl` | 任意 | `pip install <wheel>` |
+
+GUI 版启动后浏览器打开 `http://127.0.0.1:8756`。
 
 模型权重在首次使用时下载到 `~/.cache/video2script/models`（可用 `V2S_MODEL_DIR` 改）：
 `small` ≈ 0.5 GB、`medium` ≈ 1.5 GB、说话人模型 ≈ 35 MB。

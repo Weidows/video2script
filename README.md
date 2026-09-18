@@ -73,7 +73,16 @@ pip install -e ".[diar]"                            # + speaker diarization (she
 ```
 
 Or grab a standalone binary from [Releases](https://github.com/Weidows/video2script/releases) —
-no Python needed.
+no Python needed:
+
+| Release asset | Platform | Notes |
+|---|---|---|
+| `video2script-windows.exe` · `video2script-gui-windows.exe` | Windows | run directly, no install |
+| `video2script-macos` · `video2script-gui-macos` | macOS | unsigned: right-click → Open the first time |
+| `video2script-linux` · `video2script-gui-linux` | Linux | `chmod +x` first |
+| `video2script-<version>-py3-none-any.whl` | any | `pip install <wheel>` |
+
+The GUI binary serves the same page as `video2script-gui` at `http://127.0.0.1:8756`.
 
 Model weights are downloaded on first use into `~/.cache/video2script/models`
 (override with `V2S_MODEL_DIR`). `small` ≈ 0.5 GB, `medium` ≈ 1.5 GB, diarization ≈ 35 MB.

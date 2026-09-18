@@ -271,7 +271,10 @@ src/video2script/
 - ❌ **商业使用** —— 包括企业内部使用、SaaS、嵌入付费产品
 
 **商用授权**可单独获取：在 <https://github.com/Weidows/video2script/issues> 开 issue
-或联系作者 [@Weidows](https://github.com/Weidows)。
+或联系作者 [@Weidows](https://github.com/Weidows)。`Required Notice` 行放在 [NOTICE](NOTICE)。
+
+> GitHub 侧边栏可能显示 **Other / NOASSERTION**：PolyForm Noncommercial 有意不属于 OSI 认可许可证，
+> GitHub 不会自动识别；以 [LICENSE](LICENSE) 为准。
 
 许可证只覆盖本仓库自有代码；第三方组件保留各自许可证，**不因本项目而变更**：
 

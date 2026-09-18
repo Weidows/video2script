@@ -282,7 +282,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 **Commercial licensing** is available separately — open an issue at
 <https://github.com/Weidows/video2script/issues> or contact the maintainer
-([@Weidows](https://github.com/Weidows)).
+([@Weidows](https://github.com/Weidows)). The `Required Notice` line lives in [NOTICE](NOTICE).
+
+> GitHub's license sidebar may show **Other / NOASSERTION**: PolyForm Noncommercial is deliberately
+> not an OSI-approved license, so GitHub does not auto-detect it. The authoritative text is
+> [LICENSE](LICENSE).
 
 The license covers this repository's own code. Third-party components keep their own licenses and are
 **not** relicensed here:

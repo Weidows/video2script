@@ -43,6 +43,25 @@ The rule layer is word-list driven. To support a new language:
 3. add a test case in `tests/test_clean.py` with realistic disfluencies for that language;
 4. extend `default_prompt()` in `src/video2script/config.py` so the ASR keeps fillers verbatim.
 
+## Release process
+
+```bash
+# 1. 更新 CHANGELOG.md（把 Unreleased 换成新版本号 + 日期），同步 pyproject.toml 与
+#    src/video2script/__init__.py 里的 __version__
+# 2. 提交并推送默认分支
+git commit -am "release: v0.3.0" && git push
+# 3. 打 tag 并推送 —— 这一步触发三平台构建并发布 Release
+git tag -a v0.3.0 -m "video2script v0.3.0" && git push origin v0.3.0
+```
+
+`.github/workflows/release.yml` 会在 tag 推送时构建 Windows/macOS/Linux 的免安装二进制、sdist 与
+wheel，并挂到对应的 GitHub Release。产物按平台命名（`video2script-<windows|macos|linux>[.exe]`、
+`video2script-gui-…`），**不要**让它们同名 —— macOS 与 Linux 的 PyInstaller 输出都没有 `.exe`
+后缀，扁平复制时后者会覆盖前者。
+
+想先验证打包是否正常、又不发版：在 Actions 页对 Release 工作流点一次 `Run workflow`
+（`workflow_dispatch`），它会只构建不发布（`if: startsWith(github.ref, 'refs/tags/')` 挡住 publish）。
+
 ## Reporting bugs
 
 Please include: OS, Python version, the exact command, the model used, and — most useful of all —

@@ -1,7 +1,7 @@
 # video2script
 
-[![CI](https://github.com/Weidows/video2script/actions/workflows/ci.yml/badge.svg)](https://github.com/Weidows/video2script/actions/workflows/ci.yml)
-[![Release](https://github.com/Weidows/video2script/actions/workflows/release.yml/badge.svg)](https://github.com/Weidows/video2script/actions/workflows/release.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/Weidows/video2script/ci.yml?branch=master&label=CI)](https://github.com/Weidows/video2script/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Weidows/video2script?label=release&sort=semver)](https://github.com/Weidows/video2script/releases)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#配置要求)

@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
-from .config import open_folder
+from .config import force_utf8_stdio, open_folder
 from .pipeline import LEVELS, MODELS, Options, Result, run
 
 # 同一时间只跑一个转写任务（CPU 推理本来就吃满核心）
@@ -341,6 +341,7 @@ class Handler(BaseHTTPRequestHandler):
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    force_utf8_stdio()
     ap = argparse.ArgumentParser(prog="video2script-gui",
                                  description="video2script 的本地网页界面")
     ap.add_argument("--host", default="127.0.0.1")

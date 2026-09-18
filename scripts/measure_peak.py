@@ -15,6 +15,12 @@ import sys
 import time
 from pathlib import Path
 
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+
 
 def tree_rss(proc) -> float:
     """进程树当前 RSS（MB）。"""

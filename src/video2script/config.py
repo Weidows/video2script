@@ -64,3 +64,17 @@ def open_folder(path: Path) -> None:
     else:
         import subprocess
         subprocess.Popen(["xdg-open", str(path)])
+
+
+def force_utf8_stdio() -> None:
+    """让 stdout/stderr 用 UTF-8 输出。
+
+    中文日志在非中文 Windows（控制台代码页 1252）或 CI 的重定向管道下会直接
+    UnicodeEncodeError 崩掉，这里统一成 UTF-8 + errors="replace"，永不因日志中断。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+

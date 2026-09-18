@@ -34,6 +34,9 @@ listed below for completeness, linked to its commit).
 - **Adjacent-repeat detection missed stutters** when Whisper emitted rare punctuation
   (`那﹔那`, `对﹔对`): word comparison now uses Unicode character categories instead of a
   punctuation whitelist, and standalone punctuation tokens are merged back into the previous word.
+- **CLI/GUI crashed on non-UTF-8 consoles** (`UnicodeEncodeError: 'charmap' codec ...` on Windows
+  with code page 1252, and on CI where stdout is a redirected pipe). stdio is now forced to UTF-8 with
+  `errors="replace"`; covered by `tests/test_cli_stdio.py`.
 - Dangling punctuation left behind after removing a filler (e.g. a leading `﹔`).
 - `to_md()` no longer emits an empty speaker header for single-speaker input.
 - Diarization left a temporary 16 kHz WAV in the output directory.

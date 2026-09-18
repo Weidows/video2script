@@ -18,6 +18,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# CI（Windows runner 默认 cp1252 控制台）里中文日志会 UnicodeEncodeError，先兜住
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()

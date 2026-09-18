@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import find_ffmpeg
+from .config import find_ffmpeg, force_utf8_stdio
 from .pipeline import LEVELS, MODELS, Options, run
 
 
@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdio()
     args = build_parser().parse_args(argv)
     if args.cut and not find_ffmpeg() and not args.quiet:
         print("! 没找到 ffmpeg，--cut 会被跳过（装一个或把 ffmpeg 加到 PATH）",

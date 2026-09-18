@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from video2script.clean import Segment, Word, norm, smooth  # noqa: E402
+from video2script.clean import Segment, Word, norm, polish_punct, smooth  # noqa: E402
 
 
 def mk(spec):
@@ -83,6 +83,31 @@ def test_en_fillers_two_word_markers_and_spacing():
                 ("uh,", 5.9, 6.1), ("it's,", 6.3, 6.5), ("it's", 6.6, 6.8),
                 ("fine.", 6.8, 7.1)], 2, "en") \
         == "so, I wanted to talk about the project status. it's fine."
+
+
+def test_exotic_whisper_punctuation_is_treated_as_separator():
+    """Whisper 有时输出 ﹔ 这类生僻标点，不能被当成词的一部分。"""
+    assert norm("那﹔") == "那"
+    assert norm("﹔好的") == "好的"
+    assert run([("那﹔", 0.0, 0.4), ("那我说一下", 0.6, 1.4),
+                ("技术", 1.4, 1.8), ("情况。", 1.8, 2.2)]) == "那我说一下技术情况。"
+
+
+def test_leading_punct_is_stripped_after_drops():
+    """被删的语气词会连着标点一起走，剩下的首词标点也要清掉。"""
+    assert run([("嗯﹔", 0.0, 0.3), ("﹔好的", 0.5, 0.9), ("我们开始。", 0.9, 1.6)]) \
+        == "好的我们开始。"
+
+
+def test_standalone_punct_tokens_are_merged():
+    """Whisper 把标点切成独立词元时，重复判定仍然要成立。"""
+    assert run([("对", 0.0, 0.4), ("﹔", 0.4, 0.5), ("对", 0.5, 0.9),
+                ("﹔", 0.9, 1.0), ("下周", 1.0, 1.6), ("开始。", 1.6, 2.2)]) \
+        == "对下周开始。"
+
+
+def test_rare_cjk_punct_is_normalized():
+    assert smooth.__module__ and polish_punct("好的﹔我们走﹗") == "好的，我们走！"
 
 
 def test_report_counts_match_drops():

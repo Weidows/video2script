@@ -21,6 +21,9 @@ dependencies = ["faster-whisper>=1.0,<2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7,<9"]
+diar = ["sherpa-onnx>=1.10,<2"]
+build = ["pyinstaller>=6,<7"]
+all = ["video2script[dev,diar,build]"]
 
 [project.scripts]
 video2script = "video2script.cli:main"

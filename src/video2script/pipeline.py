@@ -33,6 +33,12 @@ class Options:
     llm_base: str | None = None
     llm_key: str | None = None
     llm_model: str | None = None
+    diarize: bool = False       # 说话人分离（需 sherpa-onnx）
+    num_speakers: int = -1      # -1 = 自动判断人数
+    diar_threshold: float = 0.5
+    ass: bool = False           # 输出 clean.ass
+    burn: bool = False          # 把字幕烧进画面（需 ffmpeg）
+    ass_font: str = "Microsoft YaHei"
 
 
 @dataclass
@@ -45,6 +51,7 @@ class Result:
     removed: dict[str, list] = field(default_factory=dict)
     language: str = ""
     duration: float = 0.0
+    speakers: dict[str, int] = field(default_factory=dict)
 
     @property
     def kept_seconds(self) -> float:
@@ -103,10 +110,33 @@ def run(video: str | Path, opts: Options | None = None,
 
     emit(on_event, "stage", stage="clean", message="顺滑处理 …")
     report = smooth(segments, opts.level, lang=str(getattr(info, "language", "zh")))
+
+    # 说话人分离（可选）：必须在顺滑之后，因为要按"保留下来的内容"贴标签
+    speakers: dict[str, int] = {}
+    if opts.diarize:
+        from .config import DEFAULT_MODEL_DIR
+        from .diarize import assign_speakers, diarize
+        emit(on_event, "stage", stage="diar", message="说话人分离…")
+        turns = diarize(video, Path(os.environ.get("V2S_DIAR_DIR")
+                                    or DEFAULT_MODEL_DIR / "diar"),
+                        num_speakers=opts.num_speakers, threshold=opts.diar_threshold,
+                        workdir=outdir, on_event=on_event)
+        speakers = assign_speakers(segments, turns)
+        (outdir / "speakers.json").write_text(json.dumps(
+            {"turns": [t.__dict__ for t in turns], "segment_counts": speakers},
+            ensure_ascii=False, indent=2), encoding="utf-8")
+
     clean_text = "\n".join(s.text for s in segments if s.text)
     (outdir / "clean.txt").write_text(clean_text, encoding="utf-8")
-    to_srt(build_blocks(segments, jt=jt), outdir / "clean.srt")
+    clean_blocks = build_blocks(segments, jt=jt)
+    to_srt(clean_blocks, outdir / "clean.srt")
     to_md(segments, outdir / "clean.md", jt=jt)
+
+    if opts.diarize:
+        from .clean import speaker_prefix
+        clean_text = "\n".join((speaker_prefix(s) + s.text) if s.speaker else s.text
+                               for s in segments if s.text)
+        (outdir / "clean.txt").write_text(clean_text, encoding="utf-8")
 
     total = segments[-1].end if segments else 0.0
     counts = {k: len(v) for k, v in report.items()}
@@ -118,6 +148,26 @@ def run(video: str | Path, opts: Options | None = None,
 
     files = {n: outdir / n for n in
              ("raw.txt", "raw.srt", "clean.txt", "clean.srt", "clean.md", "report.json")}
+    if opts.diarize:
+        files["speakers.json"] = outdir / "speakers.json"
+
+    # 字幕：ASS 输出 / 烧进画面
+    want_ass = opts.ass or opts.burn
+    if want_ass:
+        from .subtitles import to_ass
+        to_ass(clean_blocks, outdir / "clean.ass", font=opts.ass_font,
+               title=video.stem)
+        files["clean.ass"] = outdir / "clean.ass"
+    if opts.burn:
+        ffmpeg = find_ffmpeg()
+        if not ffmpeg:
+            emit(on_event, "warn", message="没找到 ffmpeg，跳过 --burn")
+        else:
+            from .subtitles import burn_subtitles
+            out = outdir / f"{video.stem}_subtitled.mp4"
+            emit(on_event, "stage", stage="burn", message="把字幕烧进画面 …")
+            burn_subtitles(video, files["clean.ass"], out, ffmpeg)
+            files[out.name] = out
 
     if opts.rewrite == "llm":
         emit(on_event, "stage", stage="llm", message="LLM 通读润色 …")
@@ -140,6 +190,7 @@ def run(video: str | Path, opts: Options | None = None,
 
     res = Result(outdir=outdir, files=files, raw_text=raw_text, clean_text=clean_text,
                  counts=counts, removed=report,
-                 language=str(getattr(info, "language", "")), duration=total)
+                 language=str(getattr(info, "language", "")), duration=total,
+                 speakers=speakers)
     emit(on_event, "done", result=res)
     return res

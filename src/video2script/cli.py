@@ -36,6 +36,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prompt", default=None, help="自定义转写提示词")
     p.add_argument("--cut", action="store_true",
                    help="额外输出剪掉语气词的 *_tight.mp4（需 ffmpeg）")
+    p.add_argument("--diarize", action="store_true",
+                   help="说话人分离（需 pip install \"video2script[diar]\"，首次下 ~35MB 模型）")
+    p.add_argument("--num-speakers", type=int, default=-1,
+                   help="已知人数时指定，-1 = 自动判断")
+    p.add_argument("--diar-threshold", type=float, default=0.5,
+                   help="聚类阈值（越大越倾向合并，默认 0.5）")
+    p.add_argument("--ass", action="store_true", help="输出 clean.ass 字幕")
+    p.add_argument("--burn", action="store_true",
+                   help="把字幕烧进画面 *_subtitled.mp4（需 ffmpeg，隐含 --ass）")
+    p.add_argument("--ass-font", default="Microsoft YaHei", help="ASS 字体名")
     p.add_argument("-q", "--quiet", action="store_true")
     return p
 
@@ -50,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
                    compute_type=args.compute_type, level=args.level,
                    vad=not args.no_vad, cut=args.cut, rewrite=args.rewrite,
                    prompt=args.prompt, outdir=args.outdir, llm_base=args.llm_base,
-                   llm_key=args.llm_key, llm_model=args.llm_model)
+                   llm_key=args.llm_key, llm_model=args.llm_model,
+                   diarize=args.diarize, num_speakers=args.num_speakers,
+                   diar_threshold=args.diar_threshold, ass=args.ass,
+                   burn=args.burn, ass_font=args.ass_font)
 
     def on_event(kind: str, data: dict) -> None:
         if args.quiet:
@@ -79,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
               f"短语重复 {c['phrase_repeat']}、口头禅 {c['discourse']}、"
               f"半截词 {c['partial']}  ← 共删除 {sum(c.values())} 处，"
               f"落在 {res.duration:.0f}s 音频上")
+        if res.speakers:
+            print("说话人分布：" + "、".join(f"{k or '未定'} {v} 段"
+                                        for k, v in res.speakers.items()))
         print(f"输出目录：{res.outdir}")
     return 0
 

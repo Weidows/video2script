@@ -1,0 +1,54 @@
+{
+  "input": "samples\\say_two_speakers.mp4",
+  "language": "zh",
+  "model": "medium",
+  "duration_s": 25.18,
+  "level": 2,
+  "counts": {
+    "filler": 4,
+    "repeat": 3,
+    "discourse": 0,
+    "phrase_repeat": 0,
+    "partial": 0
+  },
+  "removed": {
+    "filler": [
+      {
+        "t": 0.0,
+        "w": "呃、"
+      },
+      {
+        "t": 7.7,
+        "w": "嗯﹔"
+      },
+      {
+        "t": 15.66,
+        "w": "啊﹔"
+      },
+      {
+        "t": 22.68,
+        "w": "嗯﹔"
+      }
+    ],
+    "repeat": [
+      {
+        "t": 9.24,
+        "w": "那",
+        "kind": "adjacent"
+      },
+      {
+        "t": 16.98,
+        "w": "那",
+        "kind": "adjacent"
+      },
+      {
+        "t": 21.1,
+        "w": "对﹔",
+        "kind": "adjacent"
+      }
+    ],
+    "discourse": [],
+    "phrase_repeat": [],
+    "partial": []
+  }
+}

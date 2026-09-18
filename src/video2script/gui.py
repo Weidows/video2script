@@ -90,6 +90,13 @@ PAGE = r"""<!doctype html>
         <option value="llm">再用 LLM 润色（需 key）</option></select></label>
       <label>设备<select id="device">
         <option value="cpu" selected>CPU</option><option value="cuda">CUDA</option></select></label>
+      <label>字幕<select id="subs">
+        <option value="">无</option>
+        <option value="ass">导出 clean.ass</option>
+        <option value="burn">烧进画面（需 ffmpeg）</option></select></label>
+      <label>说话人<select id="diar">
+        <option value="0">不区分</option>
+        <option value="1">分离说话人（首次下 35MB 模型）</option></select></label>
       <button id="go" disabled>开始转写</button>
     </div>
     <div id="bar"><i></i></div>
@@ -128,7 +135,9 @@ $('go').onclick=async()=>{
   $('go').disabled=true; $('result').style.display='none';
   const body={id:job,lang:$('lang').value,model:$('model').value,level:+$('level').value,
               device:$('device').value,cut:$('extras').value==='cut',
-              rewrite:$('extras').value==='llm'?'llm':'none'};
+              rewrite:$('extras').value==='llm'?'llm':'none',
+              diarize:$('diar').value==='1',
+              ass:$('subs').value==='ass', burn:$('subs').value==='burn'};
   const r=await fetch('/api/run',{method:'POST',body:JSON.stringify(body)});
   if(!r.ok){$('log').textContent='启动失败';$('go').disabled=false;return}
   timer=setInterval(poll,1000);
@@ -304,6 +313,9 @@ class Handler(BaseHTTPRequestHandler):
                            device=str(d.get("device", "cpu")),
                            compute_type=str(d.get("compute_type", "int8")),
                            cut=bool(d.get("cut")), rewrite=str(d.get("rewrite", "none")),
+                           diarize=bool(d.get("diarize")),
+                           num_speakers=int(d.get("num_speakers", -1) or -1),
+                           ass=bool(d.get("ass")), burn=bool(d.get("burn")),
                            outdir=job.outdir)
             if opts.model not in MODELS:
                 opts.model = "small"

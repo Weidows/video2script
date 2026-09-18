@@ -6,30 +6,42 @@ import re
 import subprocess
 from pathlib import Path
 
-from .clean import Segment
+from .clean import Segment, speaker_prefix
 
 
 def build_blocks(segments: list[Segment], max_chars: int = 42, max_dur: float = 6.0,
                  max_gap: float = 0.9, jt: str = ""):
-    """把段内剩余词重新切成字幕块（按标点 / 长度 / 停顿）。"""
+    """把段内剩余词重新切成字幕块（按标点 / 长度 / 停顿）。
+
+    开了说话人分离时，每段文本会带 ``说话人N：`` 前缀，字幕长度按前缀后的文本算。
+    """
     blocks, cur, cstart = [], [], None
     for seg in segments:
+        pre = speaker_prefix(seg)
+        first_block_of_seg = True
+
+        def flush(end):
+            nonlocal cur, cstart
+            if cur:
+                blocks.append((cstart, end,
+                               (pre if first_block_of_seg else "")
+                               + jt.join(x.text for x in cur).strip()))
+                cur, cstart = [], None
+
         for w in [w for w in seg.words if not w.drop]:
             if cur and (w.start - cur[-1].end > max_gap
-                        or len(jt.join(x.text for x in cur)) > max_chars
+                        or len(pre + jt.join(x.text for x in cur)) > max_chars
                         or w.end - cstart > max_dur):
-                blocks.append((cstart, cur[-1].end,
-                               jt.join(x.text for x in cur).strip()))
-                cur, cstart = [], None
+                flush(cur[-1].end)
+                first_block_of_seg = False
             if not cur:
                 cstart = w.start
             cur.append(w)
             if re.search(r"[。！？!?…]$", w.text):
-                blocks.append((cstart, w.end, jt.join(x.text for x in cur).strip()))
-                cur, cstart = [], None
-        if cur:
-            blocks.append((cstart, cur[-1].end, jt.join(x.text for x in cur).strip()))
-            cur, cstart = [], None
+                flush(w.end)
+                first_block_of_seg = False
+        flush(cur[-1].end if cur else seg.end)
+        first_block_of_seg = False
     return [b for b in blocks if b[2]]
 
 
@@ -48,20 +60,27 @@ def to_srt(blocks, path: Path) -> None:
 
 
 def to_md(segments: list[Segment], path: Path, gap: float = 1.0, jt: str = "") -> None:
-    """按停顿自动分段输出 Markdown。"""
-    paras, cur, pend = [], [], None
+    """按停顿自动分段输出 Markdown；开了说话人分离时按说话人加小标题。"""
+    join = (lambda xs: jt.join(xs)) if jt else (lambda xs: "".join(xs))
+    groups: list[dict] = []
+    pend = None
     for seg in segments:
-        txt = jt.join(w.text for w in seg.words if not w.drop).strip()
+        txt = join([w.text for w in seg.words if not w.drop]).strip()
         if not txt:
             continue
-        if pend is not None and seg.start - pend > gap:
-            paras.append(jt.join(cur) if jt else "".join(cur))
-            cur = []
-        cur.append(txt)
+        new_group = (not groups or groups[-1]["speaker"] != seg.speaker
+                     or (pend is not None and seg.start - pend > gap))
+        if new_group:
+            groups.append({"speaker": seg.speaker, "texts": []})
+        groups[-1]["texts"].append(txt)
         pend = seg.end
-    if cur:
-        paras.append(jt.join(cur) if jt else "".join(cur))
-    path.write_text("\n\n".join(paras) + "\n", encoding="utf-8")
+
+    out: list[str] = []
+    for g in groups:
+        if g["speaker"]:
+            out.append(f"**{g['speaker']}**")
+        out.append(join(g["texts"]))
+    path.write_text("\n\n".join(out) + "\n", encoding="utf-8")
 
 
 def keep_intervals(segments: list[Segment], total: float, pad: float = 0.08):

@@ -1,9 +1,16 @@
 {
-  "input": "samples\\say_zh.mp4",
+  "input": "C:\\Users\\weidows\\video2script\\samples\\say_zh.mp4",
   "language": "zh",
   "model": "medium",
   "duration_s": 21.38,
   "level": 2,
+  "counts": {
+    "filler": 5,
+    "repeat": 5,
+    "discourse": 3,
+    "phrase_repeat": 0,
+    "partial": 0
+  },
   "removed": {
     "filler": [
       {
@@ -70,12 +77,5 @@
     ],
     "phrase_repeat": [],
     "partial": []
-  },
-  "counts": {
-    "filler": 5,
-    "repeat": 5,
-    "discourse": 3,
-    "phrase_repeat": 0,
-    "partial": 0
   }
 }

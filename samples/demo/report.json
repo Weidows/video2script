@@ -1,0 +1,81 @@
+{
+  "input": "samples\\say_zh.mp4",
+  "language": "zh",
+  "model": "medium",
+  "duration_s": 21.38,
+  "level": 2,
+  "counts": {
+    "filler": 5,
+    "repeat": 5,
+    "discourse": 3,
+    "phrase_repeat": 0,
+    "partial": 0
+  },
+  "removed": {
+    "filler": [
+      {
+        "t": 0.0,
+        "w": "呃、"
+      },
+      {
+        "t": 4.06,
+        "w": "嗯，"
+      },
+      {
+        "t": 9.36,
+        "w": "啊，"
+      },
+      {
+        "t": 10.88,
+        "w": "呢，"
+      },
+      {
+        "t": 17.28,
+        "w": "嗯，"
+      }
+    ],
+    "repeat": [
+      {
+        "t": 4.76,
+        "w": "这个",
+        "kind": "adjacent"
+      },
+      {
+        "t": 6.32,
+        "w": "一个，",
+        "kind": "adjacent"
+      },
+      {
+        "t": 12.84,
+        "w": "把",
+        "kind": "adjacent"
+      },
+      {
+        "t": 19.24,
+        "w": "我，",
+        "kind": "adjacent"
+      },
+      {
+        "t": 19.52,
+        "w": "觉得",
+        "kind": "prefix"
+      }
+    ],
+    "discourse": [
+      {
+        "t": 16.3,
+        "w": "然后，"
+      },
+      {
+        "t": 11.42,
+        "w": "那个，"
+      },
+      {
+        "t": 0.86,
+        "w": "那个，"
+      }
+    ],
+    "phrase_repeat": [],
+    "partial": []
+  }
+}

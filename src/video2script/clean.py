@@ -41,14 +41,46 @@ EN_KEEP: set[str] = set()
 FILLER_RE = re.compile(r"[，。！？、；：,.!?;:\s…“”\"'（）()《》\-—~]+")
 
 
+def is_word_char(ch: str) -> bool:
+    """字母/数字/撇号才算"词内字符"，其余（含各种奇怪标点）都当分隔符。"""
+    cat = unicodedata.category(ch)
+    return cat[0] in ("L", "N") or ch == "'"
+
+
 def norm(tok: str) -> str:
-    """归一化用于比较：标点转空格后压缩，保留词间空格（英文多词填充词需要）。"""
+    """归一化用于比较：非词内字符转空格后压缩，保留词间空格（英文多词填充词需要）。
+
+    用 Unicode 类别判断而不是标点白名单 —— Whisper 偶尔会输出 ``﹔`` 这类生僻标点，
+    白名单会漏掉它们，导致 ``那﹔那`` 这种口吃识别不出来。
+    """
     t = unicodedata.normalize("NFKC", tok).lower()
-    return re.sub(r"\s+", " ", FILLER_RE.sub(" ", t)).strip()
+    t = "".join(ch if is_word_char(ch) else " " for ch in t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def strip_leading_punct(text: str) -> str:
+    return text.lstrip().lstrip("".join(
+        ch for ch in text if not is_word_char(ch))) or text
+
+
+def strip_trailing_soft_punct(text: str) -> str:
+    """去掉句末的软标点（逗号/顿号/奇怪分号），句号问号保留。"""
+    while text and not is_word_char(text[-1]) and text[-1] not in "。！？!?":
+        text = text[:-1]
+    return text
 
 
 def is_cjk(s: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", s))
+
+
+# Whisper 偶尔吐出生僻 CJK 标点（﹔﹑﹕），统一成常见写法
+PUNCT_MAP = str.maketrans({"﹔": "，", "﹑": "、", "﹕": "：", "﹗": "！", "﹖": "？",
+                           "﹒": "。", "･": "·"})
+
+
+def polish_punct(text: str) -> str:
+    return text.translate(PUNCT_MAP)
 
 
 # ---------------------------------------------------------------- 数据结构
@@ -68,6 +100,30 @@ class Segment:
     end: float
     text: str
     words: list[Word] = field(default_factory=list)
+    speaker: str = ""          # 说话人标签（开了 diarize 才有）
+
+
+def speaker_prefix(seg: "Segment") -> str:
+    """给字幕/正文加说话人前缀，如 ``说话人1：``。"""
+    return f"{seg.speaker}：" if seg.speaker else ""
+
+
+def attach_punct_tokens(segments: list[Segment]) -> None:
+    """Whisper 常把标点切成独立的词元（``对`` / ``，`` / ``对``）。
+
+    把它们并回前一个词，既能让相邻重复比对成立（``对，`` vs ``对，``），
+    也避免标点在输出里孤零零地占一个位置。段首的纯标点直接丢掉。
+    """
+    for seg in segments:
+        out: list[Word] = []
+        for w in seg.words:
+            if norm(w.text):                    # 有内容的词
+                out.append(w)
+            elif out:                           # 纯标点 → 贴到前一个词尾巴上
+                out[-1].text = out[-1].text + w.text
+                out[-1].end = max(out[-1].end, w.end)
+            # 段首纯标点：丢弃
+        seg.words = out
 
 
 # ---------------------------------------------------------------- 主流程
@@ -86,6 +142,8 @@ def smooth(segments: list[Segment], level: int = 2, lang: str = "zh") -> dict:
     all_words = [w for s in segments for w in s.words]
     for w in all_words:
         w.drop = ""
+    attach_punct_tokens(segments)
+    all_words = [w for s in segments for w in s.words]
 
     def prev_alive(i):
         j = i - 1
@@ -157,8 +215,8 @@ def smooth(segments: list[Segment], level: int = 2, lang: str = "zh") -> dict:
                 and norm(w.text) not in keep:
             w.drop = "repeat"
             report["repeat"].append({"t": round(w.start, 2), "w": w.text, "kind": "adjacent"})
-            while p and re.search(r"[，、,]$", p.text):
-                p.text = p.text[:-1]
+            if p:
+                p.text = strip_trailing_soft_punct(p.text)
 
     # (d) 短语级重复（整块重说，最长 6 词）
     alive = [w for w in all_words if not w.drop and norm(w.text)]
@@ -203,29 +261,38 @@ def smooth(segments: list[Segment], level: int = 2, lang: str = "zh") -> dict:
                         report["discourse"].append({"t": round(x.start, 2), "w": x.text})
             i -= 1
 
-    # (f) 跨词的部分重复："我，我，我觉得" → "我觉得"
+    # (f) 跨词的部分重复："我，我，我觉得" → "我觉得"；也处理"那，那我说一下"
     dropped_norms = {norm(w.text) for w in all_words if w.drop}
     for seg in segments:
         alive_w = [w for w in seg.words if not w.drop]
-        for a, b in zip(alive_w, alive_w[1:]):
+        for idx, (a, b) in enumerate(zip(alive_w, alive_w[1:])):
             na, nb = norm(a.text), norm(b.text)
-            if len(na) == 1 and is_cjk(na) and na in dropped_norms \
-                    and len(nb) > 1 and nb.startswith(na) and na not in keep:
-                b.text = b.text.replace(na, "", 1)
-                report["repeat"].append({"t": round(b.start, 2), "w": b.text,
-                                         "kind": "prefix"})
+            if not (len(na) == 1 and is_cjk(na) and len(nb) > 1
+                    and nb.startswith(na) and na not in keep):
+                continue
+            prev = alive_w[idx - 1] if idx > 0 else None
+            gap_before = a.start - prev.end if prev else 99.0
+            # 触发条件：前一个同类重复已被删（残留的重复），或者 a 前面就是停顿（放弃的假起头）
+            if na not in dropped_norms and gap_before <= 0.12:
+                continue
+            b.text = b.text.replace(na, "", 1)
+            a.text = strip_trailing_soft_punct(a.text)
+            report["repeat"].append({"t": round(b.start, 2), "w": b.text,
+                                     "kind": "prefix"})
 
     # (g) 收尾：段首悬空标点 / 删除词留下的连续标点
     jt = " " if use_en else ""
     for seg in segments:
         alive_w = [w for w in seg.words if not w.drop]
         if alive_w:
-            alive_w[0].text = re.sub(r"^[，、,。！？!?；;：:]+", "", alive_w[0].text)
+            alive_w[0].text = strip_leading_punct(alive_w[0].text)
         for a, b in zip(alive_w, alive_w[1:]):
-            if a.text and b.text and re.search(r"[，、,]$", a.text) \
-                    and re.match(r"^[，、,]", b.text):
+            if a.text and b.text and not is_word_char(a.text[-1]) \
+                    and a.text[-1] in "，、,﹔；" and not is_word_char(b.text[0]):
                 a.text = a.text[:-1]
-        seg.text = jt.join(w.text for w in alive_w).strip()
+        seg.text = jt.join(polish_punct(w.text) for w in alive_w).strip()
+        for w in alive_w:
+            w.text = polish_punct(w.text)
         if alive_w:
             seg.start, seg.end = alive_w[0].start, alive_w[-1].end
     return report

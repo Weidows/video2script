@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>video2script · 视频转文稿</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/icon.png">
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;
+      background:#0f1115;color:#e6e8ee}
+ header{padding:16px 24px;border-bottom:1px solid #23262f;display:flex;gap:12px;
+        align-items:center}
+ header img{width:28px;height:28px;border-radius:7px}
+ header h1{font-size:17px;margin:0}
+ header span{color:#8b93a7;font-size:12px}
+ main{max-width:1180px;margin:0 auto;padding:22px;display:grid;gap:18px}
+ .card{background:#161922;border:1px solid #23262f;border-radius:10px;padding:18px}
+ #drop{border:2px dashed #333a49;border-radius:10px;padding:26px;text-align:center;
+       color:#8b93a7;cursor:pointer;transition:.15s}
+ #drop.hot{border-color:#4f8cff;background:#182034;color:#cfe0ff}
+ #drop b{color:#e6e8ee}
+ /* 选中后的预览卡片 */
+ #preview{display:none;grid-template-columns:260px 1fr;gap:16px;align-items:start;
+          margin-top:14px}
+ #preview.on{display:grid}
+ #pvbox{background:#0b0d12;border:1px solid #2c313d;border-radius:8px;overflow:hidden}
+ #pvbox video,#pvbox audio{display:block;width:100%;background:#000}
+ #pvbox .ph{padding:34px 10px;text-align:center;color:#5c6577;font-size:12px}
+ .meta{display:flex;flex-wrap:wrap;gap:6px 10px;font-size:12px;color:#8b93a7}
+ .meta b{color:#e6e8ee;font-weight:600}
+ .opts{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-top:14px}
+ label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#8b93a7}
+ select,input[type=text]{background:#0f1115;color:#e6e8ee;border:1px solid #2c313d;
+       border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:120px}
+ button{background:#4f8cff;color:#fff;border:0;border-radius:7px;padding:9px 16px;
+        font:inherit;font-weight:600;cursor:pointer}
+ button.sec{background:#232a38;font-weight:500}
+ button.mini{padding:4px 10px;font-size:12px;font-weight:500;background:#232a38}
+ button:disabled{opacity:.45;cursor:not-allowed}
+ .bar{height:9px;background:#23262f;border-radius:99px;overflow:hidden}
+ .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#4f8cff,#7a5cff);
+        transition:width .35s}
+ .row{display:flex;justify-content:space-between;align-items:center;gap:12px;
+      font-size:12px;color:#8b93a7;margin-bottom:6px}
+ h3{margin:0 0 8px;font-size:14px;font-weight:600;color:#c7cede;display:flex;
+    align-items:center;justify-content:space-between;gap:10px}
+ pre{font:12px/1.65 ui-monospace,Consolas,monospace;color:#93a0b8;white-space:pre-wrap;
+     word-break:break-all;margin:0}
+ #log{max-height:230px;overflow:auto;background:#0f1115;border:1px solid #21242d;
+      border-radius:8px;padding:12px}
+ #live{max-height:260px;overflow:auto;background:#0f1115;border:1px solid #21242d;
+       border-radius:8px;padding:12px;color:#c7cede}
+ #live:empty::before{content:"（转写过程中这里会实时出现文字）";color:#5c6577}
+ textarea{width:100%;height:280px;background:#0f1115;color:#e6e8ee;border:1px solid #2c313d;
+          border-radius:8px;padding:12px;font:13px/1.8 ui-monospace,Consolas,monospace;
+          resize:vertical}
+ .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+ .tag{display:inline-block;background:#232a38;color:#a8b3c9;border-radius:5px;
+      padding:2px 8px;font-size:12px;margin:0 6px 6px 0}
+ .files a,.arts a{display:inline-block;margin:0 10px 8px 0;color:#7fb0ff;text-decoration:none;
+      font-size:13px}
+ .files a:hover,.arts a:hover{text-decoration:underline}
+ .arts{min-height:22px}
+ .err{color:#ff8f8f}
+ #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:#1d2431;
+        border:1px solid #333d4f;color:#dbe3f0;padding:10px 16px;border-radius:9px;
+        font-size:13px;max-width:80vw;display:none;box-shadow:0 8px 30px #0008;z-index:9}
+ .hide{display:none}
+</style></head><body>
+<header>
+  <img src="/icon.png" alt="icon">
+  <h1>video2script</h1>
+  <span>视频 → 文稿，自动剔除语气词 / 结巴 / 重复词（全部本机运行，v{{VERSION}}）</span>
+</header>
+<main>
+  <div class="card">
+    <div id="drop">把视频 / 音频文件<b>拖到这里</b>，或点击选择文件</div>
+    <div id="preview">
+      <div id="pvbox"><div class="ph">选择文件后这里显示预览</div></div>
+      <div>
+        <div class="meta" id="pmeta"></div>
+        <div class="opts">
+          <label class="f">语言<select id="lang">
+            <option value="zh" selected>中文</option><option value="en">English</option>
+            <option value="auto">自动识别</option></select></label>
+          <label class="f">模型<select id="model">
+            <option value="small">small（快，中文易错）</option>
+            <option value="medium" selected>medium（推荐）</option>
+            <option value="large-v3">large-v3（最准，最慢）</option>
+            <option value="base">base</option><option value="tiny">tiny</option></select></label>
+          <label class="f">顺滑力度<select id="level">
+            <option value="1">1 · 只删语气词</option>
+            <option value="2" selected>2 · 推荐</option>
+            <option value="3">3 · 激进</option></select></label>
+          <label class="f">额外输出<select id="extras">
+            <option value="">无</option>
+            <option value="cut">剪掉语气词的 tight.mp4</option>
+            <option value="llm">再用 LLM 润色（需 key）</option></select></label>
+          <label class="f">字幕<select id="subs">
+            <option value="">无</option>
+            <option value="ass">导出 clean.ass</option>
+            <option value="burn">烧进画面（需 ffmpeg）</option></select></label>
+          <label class="f">说话人<select id="diar">
+            <option value="0">不区分</option>
+            <option value="1">分离说话人（首次下 35MB 模型）</option></select></label>
+          <label class="f">设备<select id="device">
+            <option value="cpu" selected>CPU</option><option value="cuda">CUDA</option></select></label>
+          <button id="go" disabled>开始转写</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div class="row"><span id="stage">等待文件</span><span id="pct">0%</span></div>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>实时逐字稿 <span class="tag" id="liveinfo"></span></h3>
+    <pre id="live"></pre>
+  </div>
+
+  <div class="card">
+    <h3>日志
+      <span>
+        <button class="mini" id="copylog">复制日志</button>
+        <button class="mini" id="clearlog">清屏</button>
+      </span>
+    </h3>
+    <pre id="log">等待上传文件 …</pre>
+  </div>
+
+  <div class="card">
+    <h3>产物 <span class="tag" id="artcount">0 个</span></h3>
+    <div class="arts" id="arts"></div>
+  </div>
+
+  <div class="card hide" id="result">
+    <h3>结果 <span class="tag" id="meta"></span></h3>
+    <div id="counts" style="margin-bottom:10px"></div>
+    <div class="files" id="files"></div>
+    <div class="cols">
+      <div><h3>逐字稿（raw）</h3><textarea id="raw" readonly></textarea></div>
+      <div><h3>清洗稿（clean）</h3><textarea id="clean" readonly></textarea></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px">
+      <button class="sec" id="reveal">打开输出目录</button>
+      <button class="sec" id="copypath">复制输出路径</button>
+    </div>
+  </div>
+</main>
+<div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+let job=null,timer=null,shownLog=0,shownLive=0,shownArts=0,outdir='';
+const VEXT=['mp4','mov','mkv','webm','avi','m4v','flv','ts','wmv'];
+
+function toast(msg,ms=4200){const t=$('toast');t.textContent=msg;t.style.display='block';
+  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
+
+// ---------- 选文件 ----------
+const drop=$('drop');
+drop.onclick=()=>{const i=document.createElement('input');i.type='file';
+  i.onchange=()=>i.files[0]&&up(i.files[0]);i.click()};
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('hot')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('hot')}));
+drop.addEventListener('drop',ev=>{const f=ev.dataTransfer.files[0];if(f)up(f)});
+
+async function up(file){
+  drop.textContent='上传中：'+file.name;
+  const r=await fetch('/api/upload?name='+encodeURIComponent(file.name),{method:'POST',body:file});
+  const j=await r.json();
+  if(!r.ok){drop.textContent='上传失败：'+(j.error||r.status);return}
+  drop.innerHTML='已选择文件，可继续拖入其它文件替换';
+  job=j.id; $('go').disabled=false; shownLog=shownLive=shownArts=0;
+  $('live').textContent=''; $('arts').innerHTML=''; $('artcount').textContent='0 个';
+  renderPreview(j);
+}
+
+function renderPreview(info){
+  $('preview').classList.add('on');
+  const box=$('pvbox'); box.innerHTML='';
+  const ext=(info.name.split('.').pop()||'').toLowerCase();
+  const url='/api/media?id='+encodeURIComponent(info.id);
+  let el;
+  if(VEXT.includes(ext)){
+    el=document.createElement('video');
+    el.controls=true; el.preload='metadata'; el.playsInline=true;
+    el.addEventListener('loadedmetadata',()=>{
+      $('dur').textContent=fmt(el.duration);
+    });
+  }else{
+    el=document.createElement('audio'); el.controls=true; el.preload='metadata';
+    el.addEventListener('loadedmetadata',()=>{$('dur').textContent=fmt(el.duration)});
+  }
+  el.src=url; box.appendChild(el);
+  $('pmeta').innerHTML=
+    `<div><b>${esc(info.name)}</b></div>`+
+    `<div>大小 <b>${fmtSize(info.size)}</b></div>`+
+    `<div>时长 <b id="dur">读取中…</b></div>`+
+    `<div>路径 <b>${esc(info.path||'')}</b></div>`;
+}
+
+// ---------- 开始 ----------
+$('go').onclick=async()=>{
+  if(!job)return;
+  $('go').disabled=true; $('result').classList.add('hide');
+  $('live').textContent=''; shownLive=0;
+  const body={id:job,lang:$('lang').value,model:$('model').value,level:+$('level').value,
+              device:$('device').value,cut:$('extras').value==='cut',
+              rewrite:$('extras').value==='llm'?'llm':'none',
+              diarize:$('diar').value==='1',
+              ass:$('subs').value==='ass',burn:$('subs').value==='burn'};
+  const r=await fetch('/api/run',{method:'POST',body:JSON.stringify(body)});
+  if(!r.ok){toast('启动失败：'+(await r.text()).slice(0,120));$('go').disabled=false;return}
+  clearInterval(timer); timer=setInterval(poll,1000); poll();
+};
+
+// ---------- 轮询 ----------
+async function poll(){
+  let s;
+  try{ s=await (await fetch('/api/status?id='+job)).json(); }catch(e){ return }
+  document.querySelector('.bar>i').style.width=(s.percent||0)+'%';
+  $('pct').textContent=(s.percent||0).toFixed(0)+'%';
+  $('stage').textContent=s.stage||s.state||'';
+
+  appendLines($('log'),s.log||[]);
+  appendLive(s.partial||[]);
+  appendArts(s.artifacts||[]);
+
+  if(s.state==='error'){
+    clearInterval(timer); $('go').disabled=false;
+    toast('失败：'+(s.error||'')); return;
+  }
+  if(s.state==='done'){
+    clearInterval(timer); $('go').disabled=false;
+    $('result').classList.remove('hide');
+    $('raw').value=s.raw_text||''; $('clean').value=s.clean_text||'';
+    $('meta').textContent=(s.language||'')+' · '+(s.duration||0).toFixed(1)+'s · '+(s.model||'');
+    $('counts').innerHTML=Object.entries(s.counts||{})
+      .map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join('');
+    $('files').innerHTML=(s.files||[])
+      .map(f=>`<a href="/api/file?id=${job}&name=${encodeURIComponent(f)}">⬇ ${esc(f)}</a>`).join('');
+    outdir=s.outdir||''; $('pmeta')&&0;
+    $('liveinfo').textContent='完成';
+  }
+}
+function appendLines(el,lines){
+  if(lines.length<=shownLog)return;
+  for(let i=shownLog;i<lines.length;i++)el.textContent+=lines[i]+'\n';
+  shownLog=lines.length; el.scrollTop=el.scrollHeight;
+}
+function appendLive(list){                    // 逐字稿：只追加新段
+  if(list.length<=shownLive)return;
+  const el=$('live');
+  for(let i=shownLive;i<list.length;i++)el.textContent+=list[i]+'\n';
+  shownLive=list.length; el.scrollTop=el.scrollHeight;
+  $('liveinfo').textContent=shownLive+' 段';
+}
+function appendArts(names){
+  if(names.length<=shownArts)return;
+  const el=$('arts');
+  for(let i=shownArts;i<names.length;i++){
+    const a=document.createElement('a');
+    a.href=`/api/file?id=${job}&name=${encodeURIComponent(names[i])}`;
+    a.textContent='⬇ '+names[i]; el.appendChild(a);
+  }
+  shownArts=names.length; $('artcount').textContent=shownArts+' 个';
+}
+
+// ---------- 打开目录 ----------
+$('reveal').onclick=async()=>{
+  const r=await fetch('/api/reveal',{method:'POST',body:JSON.stringify({id:job})});
+  const j=await r.json().catch(()=>({error:'响应解析失败'}));
+  if(r.ok&&j.ok){ toast('已请求打开：'+(j.path||outdir)+'（若没弹出，可能被浏览器窗口挡住，或用「复制输出路径」）'); }
+  else{ toast('打开失败：'+(j.error||r.status)+'；可点「复制输出路径」手动打开'); }
+};
+$('copypath').onclick=async()=>{
+  try{ await navigator.clipboard.writeText(outdir||''); toast('已复制：'+outdir); }
+  catch(e){ toast('复制失败，请手动复制：'+outdir); }
+};
+$('copylog').onclick=async()=>{
+  try{ await navigator.clipboard.writeText($('log').textContent); toast('日志已复制'); }
+  catch(e){ toast('复制失败'); }
+};
+$('clearlog').onclick=()=>{ $('log').textContent=''; shownLog=0;
+  toast('已清屏（服务端日志仍在，刷新页面可恢复）',2600); };
+
+// ---------- 工具 ----------
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtSize(n){ n=+n||0; const u=['B','KB','MB','GB']; let i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++} return n.toFixed(i?1:0)+' '+u[i] }
+function fmt(s){ s=+s||0; const m=Math.floor(s/60), r=Math.floor(s%60);
+  return (m?m+'分':'')+r+'秒' }
+
+// ---------- 预载（video2script --gui 文件.mp4） ----------
+(async function(){
+  const pre=new URLSearchParams(location.search).get('job');
+  if(!pre)return;
+  try{
+    const info=await (await fetch('/api/media_info?id='+pre)).json();
+    if(info&&!info.error){
+      job=pre; $('go').disabled=false; renderPreview(info);
+      drop.innerHTML='已由命令行预载：<b>'+esc(info.name)+'</b>';
+    }
+  }catch(e){}
+})();
+</script></body></html>

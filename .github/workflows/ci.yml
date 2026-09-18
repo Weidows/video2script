@@ -16,23 +16,32 @@ jobs:
         python: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-      # 规则层是纯标准库实现，不需要装 ctranslate2 / faster-whisper
-      - run: pip install -e . --no-deps && pip install "pytest>=7,<9"
-      - run: pytest -q
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      # 规则层是纯标准库实现：只装 dev 组（pytest/pillow），不拉 ctranslate2/faster-whisper
+      # --locked：锁文件与 pyproject 不一致就直接失败（防止有人改了依赖忘了 uv lock）
+      - run: uv sync --locked --no-install-project
+      - run: uv run --no-sync pytest -q
+        env:
+          PYTHONPATH: src
 
   import:
     name: imports with real deps
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: pip install -e .
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv sync --locked                     # 真依赖（faster-whisper / ctranslate2 等）
       - run: |
-          python -c "import video2script, faster_whisper; print(video2script.__version__)"
-          video2script --help
-          python -c "from video2script.gui import PAGE; assert 'video2script' in PAGE"
+          uv run --no-sync python -c "import video2script, faster_whisper; print(video2script.__version__)"
+          uv run --no-sync video2script --help
+          uv run --no-sync python -c "from video2script.gui import PAGE; assert 'video2script' in PAGE"
+      - name: Lockfile is up to date
+        run: uv lock --check

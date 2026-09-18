@@ -81,6 +81,26 @@ def llm_rewrite(text: str, opts: Options) -> str:
         return json.load(r)["choices"][0]["message"]["content"].strip()
 
 
+# GUI 进度条的阶段预算（百分比），保证"一直在动"而不是长时间停在 0%
+PCT = {"start": 1.0, "asr": 80.0, "clean": 84.0, "diar": 92.0,
+       "render": 96.0, "ass": 98.0, "llm": 98.5, "burn": 99.0, "cut": 99.5,
+       "done": 100.0}
+
+
+def stage_pct(name: str) -> float:
+    return PCT.get(name, 0.0)
+
+
+def _emit_stage(on_event, stage: str, message: str) -> None:
+    emit(on_event, "stage", stage=stage, message=message, percent=stage_pct(stage))
+
+
+def _save_text(path: Path, text: str, on_event) -> None:
+    """写文件并立刻向 GUI 宣告"这个产物出来了"，界面就能边跑边下载。"""
+    path.write_text(text, encoding="utf-8")
+    emit(on_event, "artifact", name=path.name)
+
+
 def run(video: str | Path, opts: Options | None = None,
         on_event: Callable[[str, dict], None] | None = None) -> Result:
     """完整流程：转写 → 顺滑 → 落盘。``on_event(kind, data)`` 用于 CLI/GUI 报进度。"""
@@ -94,21 +114,27 @@ def run(video: str | Path, opts: Options | None = None,
     outdir.mkdir(parents=True, exist_ok=True)
     lang = None if opts.lang == "auto" else opts.lang
 
-    emit(on_event, "stage", stage="asr", message=f"加载模型 {opts.model} …")
+    _emit_stage(on_event, "start", f"加载模型 {opts.model}（首次运行需下载权重）…")
+
+    def asr_progress(done: float, total: float, text: str) -> None:
+        frac = min(1.0, done / total) if total else 0.0
+        emit(on_event, "progress", stage="asr", done=done, total=total, text=text,
+             percent=stage_pct("start") + (stage_pct("asr") - stage_pct("start")) * frac)
+
     segments, info = transcribe(
         video, model_name=opts.model, lang=lang, device=opts.device,
         compute_type=opts.compute_type,
         prompt=opts.prompt or default_prompt(lang), use_vad=opts.vad,
-        on_progress=lambda done, total, text: emit(
-            on_event, "progress", stage="asr", done=done, total=total, text=text))
+        on_progress=asr_progress)
 
     jt = " " if str(getattr(info, "language", "")).startswith("en") else ""
     raw_text = "\n".join(s.text for s in segments if s.text)
-    (outdir / "raw.txt").write_text(raw_text, encoding="utf-8")
+    _save_text(outdir / "raw.txt", raw_text, on_event)
     to_srt(build_blocks(segments, max_chars=10 ** 9, max_dur=10 ** 9, max_gap=1.5,
                         jt=jt), outdir / "raw.srt")
+    emit(on_event, "artifact", name="raw.srt")
 
-    emit(on_event, "stage", stage="clean", message="顺滑处理 …")
+    _emit_stage(on_event, "clean", "顺滑处理：剔除语气词 / 结巴 / 重复词 …")
     report = smooth(segments, opts.level, lang=str(getattr(info, "language", "zh")))
 
     # 说话人分离（可选）：必须在顺滑之后，因为要按"保留下来的内容"贴标签
@@ -116,35 +142,38 @@ def run(video: str | Path, opts: Options | None = None,
     if opts.diarize:
         from .config import DEFAULT_MODEL_DIR
         from .diarize import assign_speakers, diarize
-        emit(on_event, "stage", stage="diar", message="说话人分离…")
+        _emit_stage(on_event, "diar", "说话人分离（首次运行需下载 ~35MB 模型）…")
         turns = diarize(video, Path(os.environ.get("V2S_DIAR_DIR")
                                     or DEFAULT_MODEL_DIR / "diar"),
                         num_speakers=opts.num_speakers, threshold=opts.diar_threshold,
                         workdir=outdir, on_event=on_event)
         speakers = assign_speakers(segments, turns)
-        (outdir / "speakers.json").write_text(json.dumps(
+        _save_text(outdir / "speakers.json", json.dumps(
             {"turns": [t.__dict__ for t in turns], "segment_counts": speakers},
-            ensure_ascii=False, indent=2), encoding="utf-8")
+            ensure_ascii=False, indent=2), on_event)
 
     clean_text = "\n".join(s.text for s in segments if s.text)
-    (outdir / "clean.txt").write_text(clean_text, encoding="utf-8")
+    _save_text(outdir / "clean.txt", clean_text, on_event)
+    _emit_stage(on_event, "render", "生成字幕与分段稿 …")
     clean_blocks = build_blocks(segments, jt=jt)
     to_srt(clean_blocks, outdir / "clean.srt")
     to_md(segments, outdir / "clean.md", jt=jt)
+    emit(on_event, "artifact", name="clean.srt")
+    emit(on_event, "artifact", name="clean.md")
 
     if opts.diarize:
         from .clean import speaker_prefix
         clean_text = "\n".join((speaker_prefix(s) + s.text) if s.speaker else s.text
                                for s in segments if s.text)
-        (outdir / "clean.txt").write_text(clean_text, encoding="utf-8")
+        _save_text(outdir / "clean.txt", clean_text, on_event)
 
     total = segments[-1].end if segments else 0.0
     counts = {k: len(v) for k, v in report.items()}
-    (outdir / "report.json").write_text(json.dumps({
+    _save_text(outdir / "report.json", json.dumps({
         "input": str(video), "language": getattr(info, "language", ""),
         "model": opts.model, "duration_s": round(total, 2), "level": opts.level,
         "counts": counts, "removed": report,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    }, ensure_ascii=False, indent=2), on_event)
 
     files = {n: outdir / n for n in
              ("raw.txt", "raw.srt", "clean.txt", "clean.srt", "clean.md", "report.json")}
@@ -155,9 +184,11 @@ def run(video: str | Path, opts: Options | None = None,
     want_ass = opts.ass or opts.burn
     if want_ass:
         from .subtitles import to_ass
+        _emit_stage(on_event, "ass", "生成 ASS 字幕 …")
         to_ass(clean_blocks, outdir / "clean.ass", font=opts.ass_font,
                title=video.stem)
         files["clean.ass"] = outdir / "clean.ass"
+        emit(on_event, "artifact", name="clean.ass")
     if opts.burn:
         ffmpeg = find_ffmpeg()
         if not ffmpeg:
@@ -165,14 +196,14 @@ def run(video: str | Path, opts: Options | None = None,
         else:
             from .subtitles import burn_subtitles
             out = outdir / f"{video.stem}_subtitled.mp4"
-            emit(on_event, "stage", stage="burn", message="把字幕烧进画面 …")
+            _emit_stage(on_event, "burn", "把字幕烧进画面（重编码，耗时较久）…")
             burn_subtitles(video, files["clean.ass"], out, ffmpeg)
             files[out.name] = out
+            emit(on_event, "artifact", name=out.name)
 
     if opts.rewrite == "llm":
-        emit(on_event, "stage", stage="llm", message="LLM 通读润色 …")
-        (outdir / "clean.llm.txt").write_text(llm_rewrite(clean_text, opts),
-                                              encoding="utf-8")
+        _emit_stage(on_event, "llm", "LLM 通读润色 …")
+        _save_text(outdir / "clean.llm.txt", llm_rewrite(clean_text, opts), on_event)
         files["clean.llm.txt"] = outdir / "clean.llm.txt"
 
     if opts.cut:
@@ -182,15 +213,16 @@ def run(video: str | Path, opts: Options | None = None,
         else:
             keeps = keep_intervals(segments, total)
             out = outdir / f"{video.stem}_tight.mp4"
-            emit(on_event, "stage", stage="cut",
-                 message=f"剪掉被删内容（保留 {len(keeps)} 段 / "
-                         f"{sum(e - s for s, e in keeps):.1f}s of {total:.1f}s）…")
+            _emit_stage(on_event, "cut",
+                        f"剪掉被删内容（保留 {len(keeps)} 段 / "
+                        f"{sum(e - s for s, e in keeps):.1f}s of {total:.1f}s）…")
             cut_video(video, keeps, out, ffmpeg)
             files[out.name] = out
+            emit(on_event, "artifact", name=out.name)
 
     res = Result(outdir=outdir, files=files, raw_text=raw_text, clean_text=clean_text,
                  counts=counts, removed=report,
                  language=str(getattr(info, "language", "")), duration=total,
                  speakers=speakers)
-    emit(on_event, "done", result=res)
+    emit(on_event, "done", result=res, percent=100.0)
     return res

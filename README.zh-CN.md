@@ -65,8 +65,24 @@
 
 ## 安装
 
+### uv（推荐，仓库自带 lockfile）
+
 ```bash
 git clone https://github.com/Weidows/video2script && cd video2script
+uv sync                      # 核心：CLI + GUI（按 uv.lock 建 .venv）
+uv sync --extra diar         # 追加说话人分离（sherpa-onnx）
+uv run video2script --help
+```
+
+`uv.lock` 已入库，所有人拿到完全一致的依赖版本；CI 用 `uv sync --locked`，
+依赖改了没重新 lock 会直接失败。想重打包再加 `--extra build`；
+只要开发工具用 `uv sync --no-install-project`。
+国内可让 uv 走镜像而不动 lockfile：
+`UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync`。
+
+### pip
+
+```bash
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e .                                    # 核心：CLI + GUI
 pip install -e ".[diar]"                            # 追加说话人分离（sherpa-onnx）
@@ -131,8 +147,17 @@ video2script --gui 会议.mp4       # 打开界面并预载这个文件
 video2script --gui --open         # 顺便自动打开浏览器
 ```
 
-拖入文件 → 选语言/模型/力度/字幕/说话人 → 边跑边看日志 → 逐字稿与清洗稿左右对照
-→ 一键下载所有产物。服务只监听 `127.0.0.1`，音频和文本都不离开本机。
+拖入文件（或用 `--gui 会议.mp4` 预载）后你会看到：
+
+- **预览卡片**：真的能播放的视频/音频，带文件名、大小、时长、源文件路径 —— 播放源走本地
+  HTTP Range 流，转写前可以先拖进度条确认是不是这个文件；
+- **跑的时候就有反馈**：进度条带阶段名（`asr 47%`、`说话人分离`、`烧字幕`…），
+  逐字稿一段段实时冒出来，产物（`.txt/.srt/.md`）写出的瞬间就能点下载；
+- **完整日志**：不再只留最后几条，最新行自动滚动，另有「复制日志 / 清屏」；
+- 结果区逐字稿与清洗稿左右对照、显示各类删除计数，**打开输出目录**按钮（另有
+  「复制输出路径」兜底）。
+
+服务只监听 `127.0.0.1`，音频和文本都不离开本机。
 
 `video2script-gui` 作为 `video2script --gui` 的别名保留，老脚本不用改。
 
@@ -247,7 +272,8 @@ level 3 连实义的 `这个` 也删了 —— 这就是保守/激进的取舍�
 ```
 
 ```bash
-pip install -e ".[dev]" && pytest -q     # 33 个用例，纯函数，不需下模型
+uv run pytest -q                    # 85+ 个用例，纯函数，不需下模型
+uv run python scripts/gui_smoke.py  # 起真服务跑一次端到端（含预览 Range / 进度 / 产物 / 打开目录）
 ```
 
 ## 项目结构
@@ -262,9 +288,9 @@ src/video2script/
 ├── pipeline.py    # 编排：转写 → 顺滑 → 说话人 → 渲染
 ├── main.py        # 统一入口：无参数 → GUI，带文件 → CLI
 ├── cli.py         # 命令行解析（`video2script 文件.mp4`）
-├── gui.py         # `video2script --gui`（标准库 http.server + 内嵌页面）
+├── gui.py         # `video2script --gui`（标准库 http.server；含 Range 预览流）
 ├── config.py      # 路径、HF 镜像回落、ffmpeg 探测、UTF-8 stdio
-└── assets/        # icon.png / icon.ico（由 scripts/make_icon.py 生成）
+└── assets/        # gui.html（界面）/ icon.png / icon.ico
 ```
 
 ## 路线图

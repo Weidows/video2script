@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-18
+
+### Added
+
+- **uv dependency management.** `uv.lock` is committed (70 packages pinned), dev tools are declared
+  as a PEP 735 group (`[dependency-groups].dev`) so plain `uv sync` is enough, and CI/release now
+  run on `astral-sh/setup-uv` with `uv sync --locked` — a dependency changed without re-locking
+  fails the build instead of silently re-resolving. A test guards the dev group against drifting
+  from the `[dev]` extra.
+- **GUI preview card.** The selected/pre-loaded file is shown with a real player, name, size,
+  duration and source path. Playback is streamed from the local server via a new `/api/media`
+  endpoint with HTTP Range support, so you can scrub through the video *before* transcribing
+  (`/api/media_info` feeds the card).
+- **Live GUI feedback.** The progress bar now carries stage names and percentages (stage budget in
+  `pipeline.PCT`, ASR maps 1 → 80%), the verbatim transcript appears segment by segment while ASR
+  runs, and every artifact becomes downloadable the instant it is written (`artifact` events).
+  Previously the result panel only appeared at the very end with a bar stuck near 0%.
+- **Complete GUI log.** The log is no longer truncated to a handful of lines: the server keeps up to
+  20000 lines, the page appends only new ones and auto-scrolls, and there are copy/clear buttons.
+- **"Open output folder" actually reports what happened** — it returns the path on success, an
+  explicit error otherwise, plus a "copy path" fallback button.
+- `scripts/gui_smoke.py`: end-to-end check that starts the real server (page hooks, Range preview,
+  upload, monotonic progress, artifacts, output-folder reveal).
+
+### Changed
+
+- The GUI page moved out of `gui.py` into `src/video2script/assets/gui.html` — editable and
+  reviewable on its own, still packaged for frozen builds.
+- Progress events no longer write a log line each (that flooded the log down to the last few lines);
+  the log now gets a line per 10% plus stage/artifact entries.
+- The CLI prints `✔ <file>` per artifact and inserts a line break so stage headers stay readable.
+- Version 0.3.0 → 0.4.0; tests 55 → 85.
+
 ## [0.3.0] — 2026-09-18
 
 ### Added

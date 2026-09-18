@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""零依赖本地网页 GUI：``video2script-gui``
+"""零依赖本地网页 GUI：``video2script --gui``（等价入口 ``video2script-gui``）
 
 只用 Python 标准库（http.server）起一个本地服务，浏览器打开就是界面：
-拖入视频 → 选参数 → 跑 → 逐字稿/清洗稿左右对照 + 下载产物。
+拖入视频 → 预览卡片 → 选参数 → 实时看逐字稿/日志/进度 → 下载产物。
 不上传任何云端，全部在本机跑。
 """
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
+import sys
 import threading
 import time
 import uuid
@@ -26,153 +28,28 @@ JOB_LOCK = threading.Semaphore(1)
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 WORKDIR = Path.home() / ".cache" / "video2script" / "jobs"
+MAX_LOG_LINES = 20000
 
-PAGE = r"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8">
-<title>video2script · 视频转文稿</title>
-<link rel="icon" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/icon.png">
-<style>
- *{box-sizing:border-box}
- body{margin:0;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;
-      background:#0f1115;color:#e6e8ee}
- header{padding:18px 24px;border-bottom:1px solid #23262f;display:flex;gap:12px;
-        align-items:baseline}
- header h1{font-size:17px;margin:0}
- header span{color:#8b93a7;font-size:12px}
- main{max-width:1100px;margin:0 auto;padding:24px;display:grid;gap:20px}
- .card{background:#161922;border:1px solid #23262f;border-radius:10px;padding:18px}
- #drop{border:2px dashed #333a49;border-radius:10px;padding:34px;text-align:center;
-       color:#8b93a7;cursor:pointer;transition:.15s}
- #drop.hot{border-color:#4f8cff;background:#182034;color:#cfe0ff}
- #drop b{color:#e6e8ee}
- .opts{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;align-items:flex-end}
- label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#8b93a7}
- select,input[type=text]{background:#0f1115;color:#e6e8ee;border:1px solid #2c313d;
-       border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:130px}
- button{background:#4f8cff;color:#fff;border:0;border-radius:7px;padding:9px 18px;
-        font:inherit;font-weight:600;cursor:pointer}
- button.sec{background:#232a38;font-weight:500}
- button:disabled{opacity:.45;cursor:not-allowed}
- #bar{height:7px;background:#23262f;border-radius:99px;overflow:hidden;margin:14px 0 6px}
- #bar>i{display:block;height:100%;width:0;background:#4f8cff;transition:.3s}
- #log{font:12px/1.7 ui-monospace,Consolas,monospace;color:#8b93a7;white-space:pre-wrap;
-      max-height:130px;overflow:auto}
- .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
- textarea{width:100%;height:260px;background:#0f1115;color:#e6e8ee;border:1px solid #2c313d;
-          border-radius:8px;padding:12px;font:13px/1.8 ui-monospace,Consolas,monospace;
-          resize:vertical}
- .tag{display:inline-block;background:#232a38;color:#a8b3c9;border-radius:5px;
-      padding:2px 8px;font-size:12px;margin:0 6px 6px 0}
- .files a{display:inline-block;margin:0 10px 8px 0;color:#7fb0ff;text-decoration:none}
- .files a:hover{text-decoration:underline}
- .err{color:#ff8f8f}
- h3{margin:0 0 10px;font-size:14px;font-weight:600;color:#c7cede}
-</style></head><body>
-<header><h1>video2script</h1><span>视频 → 文稿，自动剔除语气词 / 结巴 / 重复词（全部本机运行，v__VER__）</span></header>
-<main>
-  <div class="card">
-    <div id="drop">把视频/音频文件<b>拖到这里</b>，或点击选择文件<br><span id="fname"></span></div>
-    <div class="opts">
-      <label>语言<select id="lang">
-        <option value="zh" selected>中文</option><option value="en">English</option>
-        <option value="auto">自动识别</option></select></label>
-      <label>模型<select id="model">
-        <option value="small">small（快，中文易错）</option>
-        <option value="medium" selected>medium（推荐）</option>
-        <option value="large-v3">large-v3（最准，最慢）</option>
-        <option value="base">base</option><option value="tiny">tiny</option></select></label>
-      <label>顺滑力度<select id="level">
-        <option value="1">1 · 只删语气词</option>
-        <option value="2" selected>2 · 推荐</option>
-        <option value="3">3 · 激进</option></select></label>
-      <label>额外输出<select id="extras">
-        <option value="">无</option>
-        <option value="cut">剪掉语气词的 tight.mp4</option>
-        <option value="llm">再用 LLM 润色（需 key）</option></select></label>
-      <label>设备<select id="device">
-        <option value="cpu" selected>CPU</option><option value="cuda">CUDA</option></select></label>
-      <label>字幕<select id="subs">
-        <option value="">无</option>
-        <option value="ass">导出 clean.ass</option>
-        <option value="burn">烧进画面（需 ffmpeg）</option></select></label>
-      <label>说话人<select id="diar">
-        <option value="0">不区分</option>
-        <option value="1">分离说话人（首次下 35MB 模型）</option></select></label>
-      <button id="go" disabled>开始转写</button>
-    </div>
-    <div id="bar"><i></i></div>
-    <div id="log">等待上传文件 …</div>
-  </div>
-  <div class="card" id="result" style="display:none">
-    <h3>结果 <span id="meta" class="tag"></span></h3>
-    <div id="counts" style="margin-bottom:10px"></div>
-    <div class="files" id="files"></div>
-    <div class="cols">
-      <div><h3>逐字稿（raw）</h3><textarea id="raw" readonly></textarea></div>
-      <div><h3>清洗稿（clean）</h3><textarea id="clean" readonly></textarea></div>
-    </div>
-    <div style="margin-top:12px"><button class="sec" id="reveal">打开输出目录</button></div>
-  </div>
-</main>
-<script>
-let job=null, timer=null;
-const $=id=>document.getElementById(id);
-const drop=$('drop');
-drop.onclick=()=>{const i=document.createElement('input');i.type='file';i.onchange=()=>i.files[0]&&up(i.files[0]);i.click()};
-['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('hot')}));
-['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('hot')}));
-drop.addEventListener('drop',ev=>{const f=ev.dataTransfer.files[0];if(f)up(f)});
-async function up(file){
-  $('fname').textContent='上传中：'+file.name;
-  $('log').textContent='正在把文件交给本地服务 …';
-  const r=await fetch('/api/upload?name='+encodeURIComponent(file.name),{method:'POST',body:file});
-  const j=await r.json();
-  if(!r.ok){$('log').textContent='上传失败：'+(j.error||r.status);return}
-  job=j.id; $('fname').textContent='已选择：'+file.name; $('go').disabled=false;
-  $('log').textContent='准备就绪，点「开始转写」。';
-}
-// 由 `video2script --gui 文件.mp4` 预载的任务：?job=<id>
-(async function(){
-  const pre=new URLSearchParams(location.search).get('job');
-  if(!pre)return;
-  const r=await fetch('/api/status?id='+pre);
-  if(!r.ok)return;
-  const s=await r.json();
-  job=pre; $('go').disabled=false;
-  $('fname').textContent='已载入：'+(s.log&&s.log[0]?s.log[0].replace(/^已接收\s*/,''):pre);
-  $('log').textContent='文件已就绪，选好参数点「开始转写」。';
-})();
-$('go').onclick=async()=>{
-  if(!job)return;
-  $('go').disabled=true; $('result').style.display='none';
-  const body={id:job,lang:$('lang').value,model:$('model').value,level:+$('level').value,
-              device:$('device').value,cut:$('extras').value==='cut',
-              rewrite:$('extras').value==='llm'?'llm':'none',
-              diarize:$('diar').value==='1',
-              ass:$('subs').value==='ass', burn:$('subs').value==='burn'};
-  const r=await fetch('/api/run',{method:'POST',body:JSON.stringify(body)});
-  if(!r.ok){$('log').textContent='启动失败';$('go').disabled=false;return}
-  timer=setInterval(poll,1000);
-};
-async function poll(){
-  const r=await fetch('/api/status?id='+job); const s=await r.json();
-  document.querySelector('#bar>i').style.width=(s.percent||0)+'%';
-  $('log').textContent=(s.log||[]).slice(-8).join('\n')||'';
-  if(s.state==='error'){$('log').innerHTML='<span class="err">'+(s.error||'失败')+'</span>';
-    $('go').disabled=false;clearInterval(timer);return}
-  if(s.state==='done'){
-    clearInterval(timer); $('go').disabled=false;
-    $('result').style.display='block';
-    $('raw').value=s.raw_text||''; $('clean').value=s.clean_text||'';
-    $('meta').textContent=s.language+' · '+s.duration.toFixed(1)+'s · '+s.model;
-    $('counts').innerHTML=Object.entries(s.counts||{}).map(([k,v])=>`<span class="tag">${k} ${v}</span>`).join('');
-    $('files').innerHTML=(s.files||[]).map(f=>`<a href="/api/file?id=${job}&name=${encodeURIComponent(f)}">⬇ ${f}</a>`).join('');
-  }
-}
-$('reveal').onclick=()=>fetch('/api/reveal',{method:'POST',body:JSON.stringify({id:job})});
-</script></body></html>
-"""
+VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv", ".ts", ".wmv", ".mpg",
+             ".mpeg", ".3gp"}
+AUDIO_EXT = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma", ".amr"}
+
+
+# ---------------------------------------------------------------- 页面
+_PAGE_TEMPLATE: str
+try:
+    _PAGE_TEMPLATE = (ASSETS_DIR / "gui.html").read_text(encoding="utf-8")
+except OSError:                        # 资源缺失也不能 500，给个可读提示
+    _PAGE_TEMPLATE = ("<meta charset='utf-8'><h1>video2script</h1>"
+                      "<p>缺少 assets/gui.html：请从完整仓库安装（pip install -e .），"
+                      "或运行 <code>python -m video2script --gui</code> 时确认 assets 目录存在。</p>")
+
+# 兼容旧引用（CI 会检查这个属性）
+PAGE = _PAGE_TEMPLATE
+
+
+def render_page() -> bytes:
+    return _PAGE_TEMPLATE.replace("{{VERSION}}", __version__).encode("utf-8")
 
 
 # ---------------------------------------------------------------- 任务管理
@@ -182,21 +59,37 @@ class Job:
         self.video = video
         self.outdir = outdir
         self.state = "new"             # new / queued / running / done / error
+        self.stage = "等待开始"
         self.log: list[str] = []
+        self.partial: list[str] = []   # 实时逐字稿（每段一行）
+        self.artifacts: list[str] = []  # 已写出的产物名（按写出顺序）
         self.percent = 0.0
         self.error = ""
         self.result: Result | None = None
         self.model = ""
+        self._pct_logged = -1
 
     def add(self, line: str) -> None:
         self.log.append(line)
-        del self.log[:-200]
+        if len(self.log) > MAX_LOG_LINES:
+            del self.log[:len(self.log) - MAX_LOG_LINES]
+
+    def maybe_log_progress(self) -> None:
+        """进度每跨过 5% 记一行日志，既能看出在动，又不刷屏。"""
+        step = int(self.percent // 5)
+        if step > self._pct_logged:
+            self._pct_logged = step
+            if step and step % 2 == 0:      # 每 10% 一条
+                self.add(f"  … 已处理 {self.percent:.0f}%")
 
     def snapshot(self) -> dict:
         r = self.result
         return {
-            "state": self.state, "percent": round(self.percent, 1),
+            "state": self.state, "stage": self.stage,
+            "percent": round(self.percent, 1),
             "log": self.log, "error": self.error, "model": self.model,
+            "partial": self.partial,
+            "artifacts": self.artifacts,
             "language": r.language if r else "", "duration": r.duration if r else 0.0,
             "counts": r.counts if r else {}, "raw_text": r.raw_text if r else "",
             "clean_text": r.clean_text if r else "",
@@ -212,24 +105,66 @@ def start_job(job: Job, opts: Options) -> None:
             try:
                 res = run(job.video, opts, on_event=lambda kind, d: _on_event(job, kind, d))
                 job.result, job.state, job.percent = res, "done", 100.0
+                job.stage = "完成"
             except Exception as e:  # 单任务失败不影响服务
                 job.state, job.error = "error", f"{type(e).__name__}: {e}"
+                job.stage = "失败"
                 job.add(f"错误：{job.error}")
     threading.Thread(target=work, daemon=True).start()
 
 
 def _on_event(job: Job, kind: str, d: dict) -> None:
     if kind == "stage":
-        job.add(f"[{d['stage']}] {d['message']}")
-    elif kind == "warn":
-        job.add(f"! {d['message']}")
+        job.stage = str(d.get("message") or d.get("stage", ""))
+        job.add(f"[{d.get('stage', '')}] {d.get('message', '')}")
+        if "percent" in d:
+            job.percent = float(d["percent"])
     elif kind == "progress":
-        job.model = job.model
-        total = d.get("total") or 0
-        job.percent = (d["done"] / total * 100) if total else min(95.0, job.percent + 0.5)
-        if d.get("text"):
-            job.add(f"  {d['text'][:60]}")
+        if "percent" in d:
+            job.percent = float(d["percent"])
+        job.maybe_log_progress()
+        text = (d.get("text") or "").strip()
+        if text and (not job.partial or job.partial[-1] != text):
+            job.partial.append(text)
+    elif kind == "artifact":
+        name = str(d.get("name", ""))
+        if name and name not in job.artifacts:
+            job.artifacts.append(name)
+            job.add(f"  ✔ 写出 {name}")
+    elif kind == "warn":
+        job.add(f"! {d.get('message', '')}")
+    elif kind == "done":
+        job.percent, job.stage = 100.0, "完成"
 
+
+# ---------------------------------------------------------------- 工具
+def parse_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """解析 HTTP Range 头（``bytes=start-end``）→ 闭区间；非法/缺失返回 None。
+
+    浏览器播放 <video> 要拖进度条，必须支持 Range，否则只能顺放。
+    """
+    if not header or size <= 0:
+        return None
+    m = re.match(r"bytes=(\d*)-(\d*)$", header.strip())
+    if not m:
+        return None
+    s, e = m.group(1), m.group(2)
+    if s == "" and e == "":                       # bytes=-
+        return None
+    if s == "":                                   # bytes=-500 最后 500 字节
+        n = int(e)
+        return (max(0, size - n), size - 1)
+    start = int(s)
+    end = int(e) if e else size - 1
+    if start >= size:
+        return None
+    return (start, min(end, size - 1))
+
+
+def media_info(job: Job) -> dict:
+    st = job.video
+    return {"id": job.id, "name": st.name, "size": st.stat().st_size if st.exists() else 0,
+            "path": str(st)}
 
 # ---------------------------------------------------------------- HTTP
 class Handler(BaseHTTPRequestHandler):
@@ -256,6 +191,41 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return self.rfile.read(n) if n else b""
 
+    def _stream_file(self, path: Path, ctype: str, download: str | None = None):
+        """带 Range 的静态文件服务（视频预览要能拖进度条）。"""
+        size = path.stat().st_size
+        rng = parse_range(self.headers.get("Range"), size)
+        start, end = rng if rng else (0, size - 1)
+        length = max(0, end - start + 1)
+        self.send_response(206 if rng else 200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        if rng:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        if download:
+            self.send_header("Content-Disposition", f'attachment; filename="{download}"')
+        self.end_headers()
+        with path.open("rb") as f:
+            f.seek(start)
+            left = length
+            while left > 0:
+                chunk = f.read(min(1 << 20, left))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
+
+    def _resolve_out_file(self, jid: str, name: str) -> Path | None:
+        job = JOBS.get(jid)
+        if not job or not job.result:
+            return None
+        safe = Path(name).name
+        f = (job.result.outdir / safe).resolve()
+        if f.parent != job.result.outdir.resolve() or not f.exists():
+            return None
+        return f
+
     # ---- routes
     ASSETS = {"/favicon.ico": ("icon.ico", "image/x-icon"),
               "/icon.png": ("icon.png", "image/png"),
@@ -271,31 +241,44 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        q = parse_qs(u.query)
         if u.path in ("/", "/index.html"):
-            return self._send(200, PAGE.replace("__VER__", __version__).encode(),
-                              "text/html; charset=utf-8")
+            return self._send(200, render_page(), "text/html; charset=utf-8")
         if u.path in self.ASSETS:
             return self._serve_asset(u.path)
+
         if u.path == "/api/status":
-            jid = (parse_qs(u.query).get("id") or [""])[0]
-            job = JOBS.get(jid)
+            job = JOBS.get((q.get("id") or [""])[0])
             if not job:
                 return self._json({"error": "unknown job"}, 404)
             with JOBS_LOCK:
                 return self._json(job.snapshot())
+
+        if u.path == "/api/media_info":         # 预载任务用：拿到文件名/大小/时长
+            job = JOBS.get((q.get("id") or [""])[0])
+            if not job:
+                return self._json({"error": "unknown job"}, 404)
+            return self._json(media_info(job))
+
+        if u.path == "/api/media":              # 预览播放源（视频/音频本体）
+            job = JOBS.get((q.get("id") or [""])[0])
+            if not job or not job.video.exists():
+                return self._json({"error": "no media"}, 404)
+            ext = job.video.suffix.lower()
+            ctype = mimetypes.guess_type(job.video.name)[0] or (
+                "video/mp4" if ext in VIDEO_EXT else "audio/wav")
+            return self._stream_file(job.video, ctype)
+
         if u.path == "/api/file":
-            q = parse_qs(u.query)
             jid, name = (q.get("id") or [""])[0], (q.get("name") or [""])[0]
-            job = JOBS.get(jid)
-            if not job or not job.result:
-                return self._json({"error": "not ready"}, 404)
-            safe = Path(name).name
-            f = (job.result.outdir / safe).resolve()
-            if f.parent != job.result.outdir.resolve() or not f.exists():
+            f = self._resolve_out_file(jid, name)
+            if not f:
                 return self._json({"error": "no such file"}, 404)
-            ctype = "text/plain; charset=utf-8" if f.suffix != ".mp4" else "video/mp4"
-            return self._send(200, f.read_bytes(), ctype,
-                              {"Content-Disposition": f'attachment; filename="{safe}"'})
+            ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+            if f.suffix in (".txt", ".srt", ".md", ".ass", ".json"):
+                ctype = "text/plain; charset=utf-8"
+            return self._stream_file(f, ctype, download=f.name)
+
         return self._json({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -321,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             with JOBS_LOCK:
                 JOBS[jid] = job
             job.add(f"已接收 {name}（{video.stat().st_size / 1e6:.1f} MB）")
-            return self._json({"id": jid, "name": name})
+            return self._json(media_info(job))
 
         if u.path == "/api/run":
             try:
@@ -346,7 +329,9 @@ class Handler(BaseHTTPRequestHandler):
                            outdir=job.outdir)
             if opts.model not in MODELS:
                 opts.model = "small"
-            job.state, job.percent, job.log, job.result = "queued", 0.0, [], None
+            job.state, job.percent, job.stage = "queued", 0.0, "排队中"
+            job.log, job.partial, job.artifacts = [], [], []
+            job.result, job.error, job._pct_logged = None, "", -1
             start_job(job, opts)
             return self._json({"ok": True})
 
@@ -357,10 +342,14 @@ class Handler(BaseHTTPRequestHandler):
                 d = {}
             job = JOBS.get(d.get("id", ""))
             target = job.result.outdir if job and job.result else None
-            if target and target.exists():
+            if not target or not target.exists():
+                return self._json({"error": "还没有输出目录"}, 404)
+            try:
                 open_folder(target)
-                return self._json({"ok": True, "path": str(target)})
-            return self._json({"error": "还没有输出"}, 404)
+            except Exception as e:              # 桌面环境缺失时给出明确原因
+                return self._json({"error": f"{type(e).__name__}: {e}",
+                                   "path": str(target)}, 500)
+            return self._json({"ok": True, "path": str(target)})
 
         return self._json({"error": "not found"}, 404)
 

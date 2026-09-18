@@ -5,10 +5,12 @@ Thanks for taking the time to contribute! This document is short on purpose — 
 ## 1. Run the tests before opening a PR
 
 ```bash
-python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest -q                                        # 33 tests, ~0.1s, no model download
+uv sync                             # 建 .venv 并装 dev 依赖（pytest/pillow），按 uv.lock 锁版本
+uv run pytest -q                    # 85+ tests，~1s，不需下模型
+uv run python scripts/gui_smoke.py  # 需要真跑一次转写时用（会用到 samples/ 里的样本）
 ```
+
+不用 uv 也行：`python -m venv .venv && pip install -e ".[dev]" && pytest -q`。
 
 The test suite is deliberately model-free: the cleaning rules, subtitle blocking, ASS generation and
 speaker assignment are pure functions, so they run in milliseconds on every OS.

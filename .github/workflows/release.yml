@@ -20,16 +20,17 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-          cache: pip
-      - name: Install build deps
-        run: pip install -e ".[build]"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Sync build deps (pyinstaller + pillow)
+        run: uv sync --locked --extra build
       - name: Generate icon
-        run: python scripts/make_icon.py
+        run: uv run --no-sync python scripts/make_icon.py
       - name: Build standalone binary
-        run: python scripts/build_exe.py
+        run: uv run --no-sync python scripts/build_exe.py
       - name: Smoke test (one binary serves CLI + GUI)
         shell: bash
         run: |
@@ -52,19 +53,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-          cache: pip
-      - run: pip install build twine
-      - run: python -m build
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv build                       # 等价 python -m build，用 pyproject 里的后端
       - name: Check metadata
-        run: twine check dist/*
+        run: uvx twine check dist/*
       - name: Verify the wheel installs and runs
         run: |
           set -eux
-          python -m venv /tmp/venv-wheel
-          /tmp/venv-wheel/bin/pip install dist/*.whl
+          uv venv /tmp/venv-wheel --python 3.12
+          uv pip install --python /tmp/venv-wheel/bin/python dist/*.whl
           /tmp/venv-wheel/bin/video2script --help
           /tmp/venv-wheel/bin/python -c "import video2script; print(video2script.__version__)"
       - uses: actions/upload-artifact@v4

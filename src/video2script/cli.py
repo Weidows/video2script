@@ -69,17 +69,29 @@ def main(argv: list[str] | None = None) -> int:
                    diar_threshold=args.diar_threshold, ass=args.ass,
                    burn=args.burn, ass_font=args.ass_font)
 
+    printed_progress = False
+
     def on_event(kind: str, data: dict) -> None:
+        nonlocal printed_progress
         if args.quiet:
             return
         if kind == "stage":
+            if printed_progress:            # 别让进度行把阶段标题吃掉
+                print(flush=True)
+                printed_progress = False
             print(f"[{data['stage']}] {data['message']}", flush=True)
+        elif kind == "artifact":
+            if printed_progress:
+                print(flush=True)
+                printed_progress = False
+            print(f"      ✔ {data['name']}", flush=True)
         elif kind == "warn":
             print(f"! {data['message']}", file=sys.stderr, flush=True)
         elif kind == "progress":
             total = data.get("total") or 0
             pct = f"{data['done'] / total * 100:5.1f}%" if total else "  ... "
             print(f"\r      {pct} {data['text'][:48]:<48}", end="", flush=True)
+            printed_progress = True
 
     try:
         res = run(args.video, opts, on_event=on_event)

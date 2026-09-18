@@ -17,14 +17,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+try:
+    from _stdio import force_utf8
+except ImportError:  # 被其它脚本 import 时
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _stdio import force_utf8
 
-# CI（Windows runner 默认 cp1252 控制台）里中文日志会 UnicodeEncodeError，先兜住
-for _s in (sys.stdout, sys.stderr):
-    try:
-        _s.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError, ValueError):
-        pass
+force_utf8()
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:

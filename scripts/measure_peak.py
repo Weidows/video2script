@@ -15,11 +15,13 @@ import sys
 import time
 from pathlib import Path
 
-for _s in (sys.stdout, sys.stderr):
-    try:
-        _s.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError, ValueError):
-        pass
+try:
+    from _stdio import force_utf8
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _stdio import force_utf8
+
+force_utf8()
 
 
 def tree_rss(proc) -> float:

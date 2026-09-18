@@ -2,27 +2,37 @@
 # -*- coding: utf-8 -*-
 """生成应用图标（无外部素材，纯 Pillow 绘制）。
 
-    python scripts/make_icon.py            # 生成 icon.png / icon.ico
-    python scripts/make_icon.py --preview  # 另存小尺寸预览拼图，便于核对可辨识度
+    python scripts/make_icon.py                     # 写入 src/video2script/assets/
+    python scripts/make_icon.py --outdir /tmp/ico   # 写到别处
+    python scripts/make_icon.py --preview           # 另存小尺寸预览拼图，便于核对可辨识度
 
 产出（单一真源，README / GUI favicon / PyInstaller 都引用这里）：
-    src/video2script/assets/icon.png    512×512，透明圆角
-    src/video2script/assets/icon.ico    16~256 多尺寸，小尺寸用简化构图单独绘制
+    icon.png    512×512，透明圆角
+    icon.ico    16~256 多尺寸，小尺寸用简化构图单独绘制
 
 构图：蓝紫渐变圆角块 + 声波 + 文稿行 + 播放角标 —— "声音/视频 → 文稿"。
 小尺寸（≤32px）自动去掉声波、加粗文稿行、放大播放角标，否则缩放到 16px 会糊成一团。
 """
 from __future__ import annotations
 
+import argparse
 import io
 import struct
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+try:
+    from _stdio import force_utf8
+except ImportError:  # 被其它脚本 import 时
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _stdio import force_utf8
+
+force_utf8()
+
+from PIL import Image, ImageDraw  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ROOT / "src" / "video2script" / "assets"
+DEFAULT_ASSETS = ROOT / "src" / "video2script" / "assets"
 S = 1024
 BG_TOP = (79, 140, 255)       # #4F8CFF
 BG_BOTTOM = (122, 92, 255)    # #7A5CFF
@@ -30,7 +40,6 @@ BADGE = (23, 32, 58)
 WHITE = (255, 255, 255, 255)
 
 ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
-
 
 
 def gradient(size: int) -> Image.Image:
@@ -67,8 +76,7 @@ def gap_to_badge(level: str) -> int:
     cx, cy, r = lay["badge"]
     best = 10 ** 9
     for (y, h, w) in lay["bars"]:
-        # 矩形上离圆心最近的点
-        nx = min(max(cx, X0), X0 + w)
+        nx = min(max(cx, X0), X0 + w)     # 矩形上离圆心最近的点
         ny = min(max(cy, y), y + h)
         best = min(best, ((cx - nx) ** 2 + (cy - ny) ** 2) ** 0.5 - r)
     return round(best)
@@ -121,28 +129,35 @@ def write_ico(path: Path, frames: list[Image.Image]) -> None:
     path.write_bytes(header + entries + blobs)
 
 
-def main() -> int:
-    ASSETS.mkdir(parents=True, exist_ok=True)
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="生成 video2script 图标")
+    ap.add_argument("-o", "--outdir", type=Path, default=DEFAULT_ASSETS,
+                    help=f"输出目录（默认 {DEFAULT_ASSETS}）")
+    ap.add_argument("--preview", action="store_true",
+                    help="额外输出 _preview.png（256/64/32/16 放大拼图）")
+    a = ap.parse_args(argv)
+
+    out = Path(a.outdir)
+    out.mkdir(parents=True, exist_ok=True)
     master = draw(S, level="full")
-    png = ASSETS / "icon.png"
+    png = out / "icon.png"
     master.resize((512, 512), Image.LANCZOS).save(png, optimize=True)
 
     frames = [draw(sz) for sz in ICO_SIZES]           # 每个尺寸按自己的档位重绘
-    ico = ASSETS / "icon.ico"
+    ico = out / "icon.ico"
     write_ico(ico, frames)
 
-    frames[ICO_SIZES.index(32)].save(ASSETS / "icon-32.png", optimize=True)
-    frames[ICO_SIZES.index(16)].save(ASSETS / "icon-16.png", optimize=True)
+    frames[ICO_SIZES.index(32)].save(out / "icon-32.png", optimize=True)
+    frames[ICO_SIZES.index(16)].save(out / "icon-16.png", optimize=True)
 
     print(f"written: {png} ({png.stat().st_size} B)")
     print(f"written: {ico} ({ico.stat().st_size} B, sizes={ICO_SIZES})")
-
     for lvl in ("full", "simple", "tiny"):
         g = gap_to_badge(lvl)
-        print(f"  {lvl:<6} 角标↔文稿行最小间距 {g}u "
+        print(f"  {lvl:<6} 图标角标与文稿行最小间距 {g}u "
               f"(16px 下 {g * 16 / 1024:.1f}px, 32px 下 {g * 32 / 1024:.1f}px)")
 
-    if "--preview" in sys.argv:
+    if a.preview:
         tiles = []
         for px in (256, 64, 32, 16):
             im = draw(px)
@@ -154,9 +169,9 @@ def main() -> int:
         for t in tiles:
             sheet.paste(t, (x, 0), t)
             x += t.width + 20
-        out = ASSETS / "_preview.png"
-        sheet.save(out)
-        print(f"preview: {out}")
+        sheet_path = out / "_preview.png"
+        sheet.save(sheet_path)
+        print(f"preview: {sheet_path}")
     return 0
 
 

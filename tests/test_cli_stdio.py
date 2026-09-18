@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
@@ -39,3 +41,35 @@ def test_gui_help_survives_cp1252_console():
     p = _run(["-m", "video2script.gui", "--help"], "cp1252")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     assert "--port" in p.stdout.decode("utf-8", "replace")
+
+
+# ---------------- scripts/ 下的工具脚本（回归：windows runner 上 make_icon 就是这么崩的）
+
+def test_scripts_stdio_helper_survives_cp1252():
+    code = ("import sys; sys.path.insert(0, r'%s'); from _stdio import force_utf8; "
+            "force_utf8(); print('视频 → 文稿 ✓')" % (ROOT / "scripts"))
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env)
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    assert "视频 → 文稿 ✓" in p.stdout.decode("utf-8")
+
+
+def test_make_icon_runs_under_cp1252(tmp_path):
+    """图标脚本在 cp1252 控制台下必须跑得完（会打印中文间距自检）。"""
+    pytest.importorskip("PIL", reason="需要 dev extra 里的 pillow")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    p = subprocess.run([sys.executable, str(ROOT / "scripts" / "make_icon.py"),
+                        "--outdir", str(tmp_path)],
+                       capture_output=True, env=env, cwd=str(tmp_path))
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    assert (tmp_path / "icon.png").stat().st_size > 1000
+    assert (tmp_path / "icon.ico").stat().st_size > 1000
+    assert "间距" in p.stdout.decode("utf-8", "replace")
+
+
+def test_build_exe_help_survives_cp1252(tmp_path):
+    """打包脚本 --help 在 cp1252 下也要正常（同一类崩溃）。"""
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    p = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_exe.py"), "--help"],
+                       capture_output=True, env=env, cwd=str(tmp_path))
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")

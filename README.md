@@ -1,185 +1,224 @@
 # video2script
 
-**视频 → 文稿：自动剔除语气词、结巴、重复词。** 纯本地运行（不上传云端），CPU 就能跑，
-提供 **CLI** 和 **本地网页 GUI** 两个入口；可选说话人分离、ASS 字幕与烧录。
+[![CI](https://github.com/Weidows/video2script/actions/workflows/ci.yml/badge.svg)](https://github.com/Weidows/video2script/actions/workflows/ci.yml)
+[![Release](https://github.com/Weidows/video2script/actions/workflows/release.yml/badge.svg)](https://github.com/Weidows/video2script/actions/workflows/release.yml)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#requirements)
 
-> 输入一段口播/会议/访谈视频，输出两份文稿：`raw.txt`（逐字稿，含所有"嗯""呃""我我我"）
-> 和 `clean.txt`（顺滑稿，带说话人标签）。同时产出 SRT/ASS 字幕、Markdown 分段稿，
-> 以及**每一处删除的时间戳清单**。
+**Turn a video into a readable transcript — fillers, stutters and repetitions removed.**
+Runs entirely on your machine (no upload, no API key, no LLM required), CPU-only, with a **CLI** and a
+**local web GUI**. Optional speaker diarization, ASS subtitles and burn-in.
+
+[中文文档](README.zh-CN.md) · [Download a build](https://github.com/Weidows/video2script/releases) · [Report a bug](https://github.com/Weidows/video2script/issues)
 
 ```text
-视频 → 静音切分(VAD) → Whisper 逐字转写(词级时间戳) → 可解释的顺滑规则 → (可选)说话人分离
-                                                     └→ raw/clean 的 txt + srt + md + report.json
-                                                     └→ 可选：ASS 字幕 / 烧进画面 / 剪掉语气词
+video ─▶ VAD ─▶ Whisper verbatim ASR ─▶ explainable clean-up rules ─▶ (optional) LLM polish
+  (word timestamps)                     └─▶ raw/clean .txt + .srt + .md + report.json
+                                        └─▶ optional: speaker labels, ASS, burn-in, tightened video
 ```
 
-## 为什么需要它
+> Every deletion is recorded with its timestamp in `report.json`, so you can always audit *why* a word
+> disappeared — unlike end-to-end "cleaned" ASR models that silently drop content.
 
-现成方案各有缺口：
+## Contents
 
-| 方案 | 缺口 |
+- [Features](#features)
+- [Why this exists](#why-this-exists)
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [Output files](#output-files)
+- [Cleaning rules](#cleaning-rules)
+- [Requirements](#requirements)
+- [Benchmarks](#benchmarks)
+- [Project layout](#project-layout)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Features
+
+| | |
 |---|---|
-| 云端 API（AssemblyAI / Deepgram / Rev） | 默认只删 `um / uh` 这类填充词，**重复词、重说基本不管**；且要上传音频 |
-| 剪映 / 飞书妙记 / 通义听悟 | 同样只做"去语气词"；批量、可编程、可回溯的几乎没有 |
-| 端到端"顺滑"模型（如 whisper disfluency LoRA） | 只有英文靠谱；靠激进删除拿分，实测会连数字/强调性重复一起删 |
-| 自己训一个 | 顺滑这层用「词级时间戳 + 规则」就能吃掉大部分，剩下交给 LLM 兜底，比训模型便宜且**可解释、可回溯** |
+| 🧹 **Disfluency removal** | fillers (`um`, `uh`, `嗯`, `呃`), stutters (`我我我`), adjacent repeats (`把，把`), phrase-level restarts, false starts (`我，我，我觉得` → `我觉得`), pause-flanked discourse markers (`那个`, `you know`) |
+| 🎚️ **Three aggression levels** | `--level 1/2/3` — conservative for meeting minutes, aggressive for scripted voice-over |
+| 🧾 **Two transcripts, always** | `raw` (verbatim, for traceability) + `clean` (readable), plus a deletion report |
+| 🗣️ **Speaker diarization** | optional, zero-torch (sherpa-onnx, ~35 MB models), `说话人N：` labels + `speakers.json` |
+| 💬 **Subtitles** | SRT for both tiers, ASS export (`--ass`), burn-in to video (`--burn`) |
+| ✂️ **Video tightening** | `--cut` re-encodes the video with fillers physically removed |
+| 🖥️ **Two entry points** | CLI + local web GUI (stdlib `http.server`, binds `127.0.0.1` only) |
+| 🔒 **Local-first** | no upload, no telemetry, no API key; one optional network call to download model weights |
+| 📦 **Standalone builds** | PyInstaller binaries on the Releases page (no Python needed) |
+| 🧪 **Tested** | 33 pure-function tests (rules / rendering / subtitles / diarization glue), CI on 3 OS × py3.9 + py3.12 |
 
-本项目走折中路线：**逐字转写 + 可解释规则 + 可选 LLM**，中英文都支持，
-删掉的每一处都记在 `report.json` 里，出错能一眼看出是哪条规则误伤。
+## Why this exists
 
-## 安装
+| Existing option | What it does *not* do |
+|---|---|
+| Cloud APIs (AssemblyAI / Deepgram / Rev) | only strip `um`/`uh`-style fillers — **repetitions and repairs stay**; audio must be uploaded |
+| Consumer apps (Descript, 剪映, 飞书妙记, 通义听悟) | same filler-only cleaning; not batchable, scriptable or auditable |
+| End-to-end "cleaned" ASR adapters | mostly English-only; aggressive deletion — they remove intentional repetition (numbers, emphasis) too |
+| Training your own model | word-timestamp rules already cover most of it; the rest is better handled by an optional LLM pass — cheaper and **explainable** |
+
+This project sits in between: **verbatim ASR + explainable rules + optional LLM**, for Chinese and
+English, with every removed word logged.
+
+## Install
 
 ```bash
 git clone https://github.com/Weidows/video2script && cd video2script
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e .                # 核心（含 CLI + GUI）
-pip install -e ".[diar]"        # 额外装说话人分离（sherpa-onnx，~35MB 模型）
+python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e .                                    # core: CLI + GUI
+pip install -e ".[diar]"                            # + speaker diarization (sherpa-onnx)
 ```
 
-首次运行会自动下载 Whisper 权重（`small` ≈ 0.5 GB，`medium` ≈ 1.5 GB）到
-`~/.cache/video2script/models`（可用 `V2S_MODEL_DIR` 改）。
-如果 `huggingface.co` 访问不了，会自动改用 `hf-mirror.com`（可用 `HF_ENDPOINT` 覆盖）。
+Or grab a standalone binary from [Releases](https://github.com/Weidows/video2script/releases) —
+no Python needed.
 
-## 用法
+Model weights are downloaded on first use into `~/.cache/video2script/models`
+(override with `V2S_MODEL_DIR`). `small` ≈ 0.5 GB, `medium` ≈ 1.5 GB, diarization ≈ 35 MB.
+If `huggingface.co` is unreachable the tool falls back to `hf-mirror.com`
+(override with `HF_ENDPOINT`).
+
+## Quickstart
 
 ### CLI
 
 ```bash
-video2script 会议.mp4                        # 中文，small 模型，力度 2
-video2script 会议.mp4 --model medium         # 中文建议至少 medium
+video2script meeting.mp4                          # Chinese, small model, level 2
+video2script meeting.mp4 --model medium           # recommended for Chinese
 video2script talk.mp4 --lang en --model medium
-video2script 会议.mp4 --level 3 --cut        # 更激进 + 输出剪掉语气词的 tight.mp4
-video2script 会议.mp4 --diarize --ass --burn # 说话人分离 + ASS 字幕 + 烧进画面
-video2script 会议.mp4 --rewrite llm          # 再让 LLM 通读润色（需 API key）
-python -m video2script.cli 会议.mp4          # 不装 entry point 也能跑
+video2script meeting.mp4 --level 3 --cut          # aggressive + filler-free video
+video2script meeting.mp4 --diarize --ass --burn   # speakers + ASS + burned-in subtitles
+video2script meeting.mp4 --rewrite llm            # optional LLM pass (needs an API key)
+python -m video2script meeting.mp4                # works without installing entry points
 ```
 
-| 参数 | 说明 |
+| Flag | Description |
 |---|---|
-| `--lang` | `zh`（默认）/ `en` / `auto` |
-| `--model` | `tiny/base/small`(默认)`/medium/large-v3` |
-| `--level` | `1` 只删语气词+重复字 / `2`(默认) 再删被停顿包住的口头禅 / `3` 全删口头禅 |
-| `--cut` | 额外输出 `*_tight.mp4`（需 ffmpeg；转写本身不需要） |
-| `--diarize` | 说话人分离，输出带 `说话人N：` 的文稿与 `speakers.json` |
-| `--num-speakers N` | 已知人数时指定，默认 `-1` 自动判断 |
-| `--diar-threshold` | 聚类阈值，越大越倾向合并（默认 0.5） |
-| `--ass` / `--burn` | 输出 `clean.ass` / 烧进画面 `*_subtitled.mp4`（需 ffmpeg） |
-| `--ass-font` | ASS 字体名（默认 `Microsoft YaHei`） |
-| `--rewrite llm` | 用 OpenAI 兼容接口再润色一遍（`V2S_LLM_BASE/V2S_LLM_KEY/V2S_LLM_MODEL`） |
-| `--device/--compute-type` | 有 N 卡时 `--device cuda --compute-type float16` |
+| `--lang` | `zh` (default) / `en` / `auto` |
+| `--model` | `tiny` / `base` / `small` (default) / `medium` / `large-v3` |
+| `--level` | `1` fillers + in-word repeats · `2` (default) + pause-flanked markers · `3` all markers |
+| `--cut` | also emit `*_tight.mp4` with fillers physically cut (needs ffmpeg) |
+| `--diarize` | speaker separation (needs `[diar]`); `--num-speakers N`, `--diar-threshold` |
+| `--ass` / `--burn` | write `clean.ass` / burn subtitles into `*_subtitled.mp4` (needs ffmpeg) |
+| `--rewrite llm` | extra LLM pass (`V2S_LLM_BASE` / `V2S_LLM_KEY` / `V2S_LLM_MODEL`) |
+| `--device`, `--compute-type` | e.g. `--device cuda --compute-type float16` |
 
-### GUI（本地网页，零额外依赖）
+### GUI
 
 ```bash
-video2script-gui --open        # 默认 http://127.0.0.1:8756
+video2script-gui --open        # http://127.0.0.1:8756
 ```
 
-拖入视频 → 选语言/模型/力度/字幕/说话人 → 边跑边看进度日志 → 左右对照逐字稿与清洗稿
-→ 一键下载全部产物 / 打开输出目录。服务只监听 `127.0.0.1`，音频与文本都不离开本机。
+Drag a file in, pick language/model/level/subtitles/speakers, watch the log, then compare
+verbatim vs. cleaned side by side and download every artifact. The server binds `127.0.0.1` only;
+nothing leaves your machine.
 
-Windows 用户还可以把文件**拖到 `video2script.cmd`**（CLI）或双击 `video2script-gui.cmd`。
-
-### 免安装可执行文件（免 Python 环境）
-
-```bash
-pip install -e ".[build]"
-python scripts/build_exe.py          # 产物在 dist/：video2script(.exe) + video2script-gui(.exe)
-```
-
-打 tag（如 `v0.1.0`）时，`.github/workflows/release.yml` 会在 windows/macos/ubuntu 三个平台
-自动构建并挂到 Release 上。模型权重不打包，首次运行照常下载到 `~/.cache/video2script/models`。
-
-### 作为库
+### Library
 
 ```python
 from video2script import Options, run
-res = run("会议.mp4", Options(lang="zh", model="medium", level=2,
-                              diarize=True, ass=True, burn=True),
-          on_event=lambda kind, d: print(kind, d))
+
+res = run("meeting.mp4",
+          Options(lang="zh", model="medium", level=2, diarize=True, ass=True),
+          on_event=lambda kind, data: print(kind, data))
 print(res.clean_text, res.counts, res.speakers)
 ```
 
-## 输出文件
+### Standalone build
 
-| 文件 | 内容 |
+```bash
+pip install -e ".[build]"
+python scripts/build_exe.py        # dist/video2script(.exe) + dist/video2script-gui(.exe)
+```
+
+Model weights are not bundled — the first run downloads them as usual.
+
+## Output files
+
+| File | Contents |
 |---|---|
-| `raw.txt` / `raw.srt` | 逐字稿（含语气词，用于对照/回溯） |
-| `clean.txt` / `clean.srt` / `clean.md` | 顺滑稿；md 按停顿分段、按说话人分块 |
-| `report.json` | 每处删除的时间戳、词、类型（`filler/repeat/discourse/phrase_repeat/partial`） |
-| `speakers.json` | `--diarize` 时的说话人时间段与每段归属 |
-| `clean.ass` | `--ass/--burn` 时的字幕文件 |
-| `clean.llm.txt` | `--rewrite llm` 时的 LLM 版本 |
-| `*_tight.mp4` | `--cut` 时剪掉语气词的视频 |
-| `*_subtitled.mp4` | `--burn` 时烧好字幕的视频 |
+| `raw.txt` / `raw.srt` | verbatim transcript (fillers included) — the audit trail |
+| `clean.txt` / `clean.srt` / `clean.md` | cleaned transcript; Markdown is split by pauses and speakers |
+| `report.json` | every removal: timestamp, word, reason (`filler`/`repeat`/`discourse`/`phrase_repeat`/`partial`) |
+| `speakers.json` | speaker turns and per-segment assignment (with `--diarize`) |
+| `clean.ass` | subtitle file (with `--ass`/`--burn`) |
+| `clean.llm.txt` | LLM-polished text (with `--rewrite llm`) |
+| `*_tight.mp4` | video with fillers cut out (with `--cut`) |
+| `*_subtitled.mp4` | video with burned-in subtitles (with `--burn`) |
 
-## 顺滑规则（`video2script/clean.py`，按顺序执行）
+## Cleaning rules
 
-0. **标点黏合** Whisper 常把标点切成独立词元（`对` `，` `对`），先并回前一个词
-1. **纯语气词** `嗯 呃 额 唔 诶 唉 哦 噢 啊 …` / `um uh erm hmm …` → 删
-2. **半截词** `我-`、`wou-` 这类残词 → 删
-3. **词内重复** `我我我` → `我`（汉语重叠白名单保护：`谢谢/看看/刚刚/妈妈/慢慢…`）
-4. **相邻重复** `把，把语音识别` → `把语音识别`（顺带抹掉悬空逗号）
-5. **短语级复读** 最长 6 词的整块重说 → 删后一块
-6. **跨词部分重复** `我，我，我觉得` → `我觉得`、`那，那我说一下` → `那我说一下`
-7. **话语标记**（`level ≥ 2`）`那个/就是/然后/你知道/you know…` **只在前后都有 >0.18s 停顿**时才删；`level 3` 无条件删
-8. **收尾** 清掉悬空标点，并把 `﹔﹑﹕` 这类生僻标点规整成 `，、：`
+Order matters — see [`src/video2script/clean.py`](src/video2script/clean.py).
 
-判定用的是 **Unicode 字符类别**而不是标点白名单 —— Whisper 偶尔吐出 `﹔` 这种生僻标点，
-白名单会漏掉它，导致 `那﹔那` 这种口吃识别不出来。
+0. **Punctuation re-attachment** — Whisper sometimes emits punctuation as standalone tokens
+   (`对` `，` `对`); they are merged back so repeat detection still fires.
+1. **Pure fillers** — `嗯 呃 额 唔 诶 唉 哦 噢 啊 …` / `um uh erm hmm …`
+2. **Partial words** — `我-`, `wou-`
+3. **In-word repeats** — `我我我` → `我`, protected by a reduplication whitelist (`谢谢`, `看看`, `刚刚`, `妈妈`, …)
+4. **Adjacent repeats** — `把，把语音识别` → `把语音识别` (dangling comma cleaned up)
+5. **Phrase-level restarts** — up to 6 words repeated as a block, second copy removed
+6. **Cross-token stutters** — `我，我，我觉得` → `我觉得`, `那，那我说一下` → `那我说一下`
+7. **Discourse markers** (level ≥ 2) — `那个 / 就是 / 然后 / 你知道 / you know / I mean`, removed only when
+   flanked by > 0.18 s of silence; level 3 removes them unconditionally
+8. **Tidy-up** — dangling punctuation removed, rare CJK punctuation (`﹔﹑﹕`) normalized
 
-词表就在文件顶部（`ZH_INTERJ / ZH_DISCOURSE / ZH_KEEP`、`EN_*`），按自己的领域改即可，不用动代码。
+Word matching uses **Unicode character categories**, not a punctuation whitelist — Whisper occasionally
+emits rare punctuation such as `﹔`, which a whitelist would miss (making `那﹔那` undetectable).
 
-## 运行时到底调用了什么
+Customize terminology by editing the word sets at the top of `clean.py`
+(`ZH_INTERJ` / `ZH_DISCOURSE` / `ZH_KEEP`, `EN_*`) — no code changes needed.
 
-| 环节 | 实现 | 是否必需 |
+## Requirements
+
+| | Minimum | Comfortable |
 |---|---|---|
-| 音视频解码 | PyAV（`av`，自带 FFmpeg 库） | 必需，随 `faster-whisper` 一起装，**不需要系统 ffmpeg** |
-| 语音识别 | `faster-whisper`（Whisper 权重的 CTranslate2 版），词级时间戳 + VAD | 必需，本地推理 |
-| 顺滑规则 | 本项目纯 Python（Unicode 类别 + 时间戳启发式） | 必需，毫秒级 |
-| 说话人分离 | `sherpa-onnx`（pyannote-segmentation-3.0 + 3D-Speaker CAM++ + 快速聚类） | 可选，`pip install -e ".[diar]"` |
-| 字幕烧录 / 剪片 | 系统 ffmpeg | 可选，只有 `--burn/--cut` 需要 |
-| LLM 润色 | 任意 OpenAI 兼容接口 | **可选**，只有 `--rewrite llm` 才联网 |
-| GUI | Python 标准库 `http.server` | 可选，零额外依赖 |
-
-- **不需要大模型**：默认只用 Whisper 这个专用 ASR 模型（`small` ≈ 244M 参数，`large-v3` ≈ 1.55B），
-  不调用任何 LLM、不需要 API key、不联网（首次下权重除外）。
-- **不需要 torch**：说话人分离走 onnxruntime，模型只有 ~35MB。
-- **不存在"上传"**：GUI 服务只绑 `127.0.0.1`。
-
-## 配置要求（实测数据）
-
-| | 最低 | 舒服 |
-|---|---|---|
-| CPU | 4 核（int8 量化，纯 CPU 可跑） | 8 核以上 |
-| 内存 | `small` 实测峰值 **605 MB** | `medium` 实测峰值 **1431 MB**，建议 4 GB+ |
-| 磁盘 | ~0.5 GB（依赖 + small 权重） | 3 GB+（含 `large-v3`） |
-| GPU | 不需要 | 任意 CUDA 显卡，`--device cuda` 可快 5~20 倍 |
+| CPU | 4 cores (int8 quantized, CPU-only is supported) | 8+ cores |
+| RAM | ~605 MB peak with `small` | ~1.5 GB peak with `medium`, 4 GB+ advised |
+| Disk | ~0.5 GB (deps + `small` weights) | 3 GB+ (incl. `large-v3`) |
+| GPU | not required | any CUDA GPU, `--device cuda` is 5–20× faster |
 | Python | 3.9+ | 3.11 / 3.12 |
 
-本机实测（16 核 CPU、int8、无 GPU、21 秒中文音频）：
+### What runs at runtime
 
-| 模型 | 转写+顺滑耗时 | 进程树峰值 RSS |
+| Stage | Implementation | Required? |
+|---|---|---|
+| Demux/decode | PyAV (`av`, bundles FFmpeg libs) | yes — no system ffmpeg needed |
+| Speech recognition | `faster-whisper` (CTranslate2 Whisper, word timestamps + VAD) | yes — local inference |
+| Cleaning | this project, pure Python | yes — milliseconds |
+| Diarization | `sherpa-onnx` (pyannote-seg 3.0 + 3D-Speaker CAM++, fast clustering) | optional, `[diar]` |
+| Subtitle burn-in / cutting | system ffmpeg | optional, `--burn` / `--cut` |
+| LLM polish | any OpenAI-compatible endpoint | optional, `--rewrite llm` |
+| GUI | Python stdlib `http.server` | optional, zero extra deps |
+
+**No LLM is required.** The default pipeline only uses the dedicated Whisper ASR models
+(`small` ≈ 244 M params, `large-v3` ≈ 1.55 B), calls no LLM, needs no API key and no network access
+(other than the one-time weight download). Diarization runs on onnxruntime — **no torch, no uploads**.
+
+## Benchmarks
+
+Measured locally: 16-core CPU, int8, no GPU, 21-second Chinese clip (`samples/say_zh.mp4`).
+
+| Model | Transcribe + clean | Peak RSS (process tree) |
 |---|---|---|
 | `small` | 8.3 s | 605 MB |
 | `medium` | 24.9 s | 1431 MB |
-| `medium` + `--diarize` | 25 s + 3.7 s | 与 medium 相当 |
+| `medium` + `--diarize` | 25 s + 3.7 s | ≈ `medium` |
 
-耗时随音频时长线性增长；长视频建议上 GPU 或先用 `--model small` 试。
+Quality (same clip, reference text in `samples/say_zh.txt`):
 
-## 实测效果
-
-### 单人（`samples/say_zh.mp4`，参考文本 `samples/say_zh.txt`）
-
-| | 内容 |
+| | Text |
 |---|---|
-| raw | 呃、那个，我今天想讲一下这个，嗯，这个项目的一个，一个，就是进度问题。 |
+| `raw` | 呃、那个，我今天想讲一下这个，嗯，这个项目的一个，一个，就是进度问题。 |
 | `--level 2` | 我今天想讲一下这个项目的一个**就是**进度问题。 |
 | `--level 3` | 我今天想讲一下**项目的一个**进度问题。 |
 
-参考意图是"我今天想讲一下**这个**项目的一个进度问题"：level 2 多留一个"就是"（停顿不够长），
-level 3 把实义的"这个"也删了 —— 这就是保守/激进的取舍：**会议记录用 2，口播稿用 3，或用 LLM 兜底**。
+The intended sentence was "我今天想讲一下**这个**项目的一个进度问题": level 2 keeps one extra `就是`
+(not flanked by enough silence), level 3 also drops the meaningful `这个`. That is the
+conservative/aggressive trade-off — use 2 for minutes, 3 for voice-over, or add the LLM pass.
 
-### 双人（`samples/say_two_speakers.mp4`，两人交替说话）
+Two-speaker sample (`samples/say_two_speakers.mp4`):
 
 ```text
 说话人1：那个，我是产品经理，我今天想讲一下这个项目的进度问题。
@@ -188,25 +227,65 @@ level 3 把实义的"这个"也删了 —— 这就是保守/激进的取舍：*
 说话人2：对下周我们，我觉得可以开始测试。
 ```
 
-原始逐字稿里的 `呃、那个、嗯、那，那、对，对、我，我` 都被处理掉了，说话人划分与交替顺序完全正确
-（sherpa-onnx 分出 2 人 / 4 段）。
-
-### 测试
-
 ```bash
-pip install -e ".[dev]" && pytest -q     # 33 个用例：规则层 / 渲染层 / 字幕 / 说话人，纯函数秒级
+pip install -e ".[dev]" && pytest -q     # 33 tests, pure functions, no model download
 ```
 
-## 路线图
+## Project layout
 
-- [x] 说话人分离（sherpa-onnx，零 torch）
-- [x] ASS 字幕导出 + 烧进画面
-- [x] 免安装可执行文件（PyInstaller + Release CI）
-- [ ] 更细的中文重叠词白名单与领域词表（`--wordlist`）
-- [ ] 剪映草稿 / Final Cut 交换格式导出
-- [ ] `large-v3` + GPU 的批量队列模式
+```
+src/video2script/
+├── asr.py         # faster-whisper wrapper (word timestamps, VAD, progress callbacks)
+├── clean.py       # the cleaning rules + word lists (the interesting part)
+├── render.py      # subtitle blocking, SRT/Markdown, cut intervals
+├── subtitles.py   # ASS generation + burn-in
+├── diarize.py     # sherpa-onnx diarization, model download, speaker assignment
+├── pipeline.py    # orchestration: transcribe → clean → diarize → render
+├── cli.py         # `video2script`
+├── gui.py         # `video2script-gui` (stdlib http.server + embedded page)
+└── config.py      # paths, HF mirror fallback, ffmpeg discovery
+```
+
+## Roadmap
+
+- [x] Speaker diarization (sherpa-onnx, torch-free)
+- [x] ASS export + subtitle burn-in
+- [x] Standalone binaries (PyInstaller + release CI)
+- [ ] Domain word lists (`--wordlist`)
+- [ ] CapCut / Final Cut project export
+- [ ] Batch queue mode with `large-v3` + GPU
+
+## Contributing
+
+Issues and PRs are welcome. Please run `pip install -e ".[dev]" && pytest -q` before opening a PR,
+and keep new cleaning rules accompanied by a pure-function test in `tests/test_clean.py`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
-MIT。Whisper 权重来自 OpenAI（MIT），CTranslate2 转换版由 Systran 发布；
-说话人分离模型来自 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 的 pyannote / 3D-Speaker 导出。
+**Source-available, non-commercial.** Licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE):
+
+- ✅ personal use, study, research, hobby projects, experiments
+- ✅ use by non-profits, schools, public research and government institutions
+- ✅ modify and redistribute for those purposes (keep the license and the `Required Notice` line)
+- ❌ **commercial use** — including internal business use, SaaS, and embedding in a paid product
+
+**Commercial licensing** is available separately — open an issue at
+<https://github.com/Weidows/video2script/issues> or contact the maintainer
+([@Weidows](https://github.com/Weidows)).
+
+The license covers this repository's own code. Third-party components keep their own licenses and are
+**not** relicensed here:
+
+| Component | License |
+|---|---|
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [CTranslate2](https://github.com/OpenNMT/CTranslate2) | MIT |
+| Whisper model weights (OpenAI, distributed by Systran) | MIT |
+| [PyAV](https://github.com/PyAV-Org/PyAV) | BSD-3-Clause |
+| [onnxruntime](https://github.com/microsoft/onnxruntime) | MIT |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Apache-2.0 |
+| Diarization models (pyannote segmentation, 3D-Speaker CAM++) | see upstream repositories |
+| [NumPy](https://numpy.org/), [tokenizers](https://github.com/huggingface/tokenizers), [huggingface_hub](https://github.com/huggingface/huggingface_hub) | BSD-3-Clause / Apache-2.0 |
+
+If you use this project commercially, make sure *you* are also compliant with the licenses above.

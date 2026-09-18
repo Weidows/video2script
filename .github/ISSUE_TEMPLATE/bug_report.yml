@@ -1,0 +1,58 @@
+name: Bug report
+description: Something did not work, or a rule deleted / kept the wrong words
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! The most useful details are the **raw → clean** diff and the matching
+        `report.json` entry, which tell us whether a rule misfired or the recognizer did.
+  - type: dropdown
+    id: entry
+    attributes:
+      label: Which entry point?
+      options:
+        - CLI (`video2script`)
+        - GUI (`video2script-gui`)
+        - Library (`from video2script import run`)
+        - Standalone binary from Releases
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "0.2.0, or the commit SHA / release tag"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or steps
+      render: shell
+      placeholder: video2script meeting.mp4 --lang zh --model medium --level 2
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: Paste the relevant `raw.txt` line, the `clean.txt` line you got, and the entry from `report.json`.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "Windows 11 / Python 3.12 / CPU int8; or macOS 15 / M2 / CUDA n/a"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: Output of the run, `report.json`, or a stack trace.
+      render: shell
+    validations:
+      required: false

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -79,10 +80,12 @@ def explorer_locations() -> set[str]:
 
 def main() -> int:
     assert SAMPLE.exists(), f"缺少样本 {SAMPLE}"
-    proc = subprocess.Popen([sys.executable, "-m", "video2script", "--gui",
+    # -u / PYTHONUNBUFFERED：子进程 stdout 是管道会被块缓冲，不强制无缓冲就抓不到启动那行地址
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    proc = subprocess.Popen([sys.executable, "-u", "-m", "video2script", "--gui",
                              str(SAMPLE), "--port", str(PORT)],
                             cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace")
+                            text=True, encoding="utf-8", errors="replace", env=env)
     out_lines: list[str] = []
     threading.Thread(target=lambda: [out_lines.append(ln.rstrip())
                                      for ln in proc.stdout], daemon=True).start()

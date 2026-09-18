@@ -68,6 +68,13 @@ jobs:
           uv pip install --python /tmp/venv-wheel/bin/python dist/*.whl
           /tmp/venv-wheel/bin/video2script --help
           /tmp/venv-wheel/bin/python -c "import video2script; print(video2script.__version__)"
+          # 界面资源必须真的打进 wheel，否则安装后 GUI 只剩一句错误提示
+          /tmp/venv-wheel/bin/python -c "
+          import video2script.gui as g
+          h = g.render_page().decode('utf-8')
+          assert 'id=\"pvbox\"' in h and '{{VERSION}}' not in h, 'GUI 页面资源没打进 wheel'
+          print('wheel 内的界面资源 OK', len(h), 'chars')
+          "
       - uses: actions/upload-artifact@v4
         with:
           name: dist

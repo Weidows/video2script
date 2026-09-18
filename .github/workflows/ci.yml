@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rules:
+    name: rule layer (${{ matrix.os }} / py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # 规则层是纯标准库实现，不需要装 ctranslate2 / faster-whisper
+      - run: pip install -e . --no-deps && pip install "pytest>=7,<9"
+      - run: pytest -q
+
+  import:
+    name: imports with real deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: |
+          python -c "import video2script, faster_whisper; print(video2script.__version__)"
+          video2script --help
+          python -c "from video2script.gui import PAGE; assert 'video2script' in PAGE"

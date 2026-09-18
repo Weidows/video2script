@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video2script"
-version = "0.1.0"
+version = "0.2.0"
 description = "Video/audio to transcript with fillers, stutters and repetitions removed — CPU-only, explainable rules, CLI + local web GUI"
 readme = "README.md"
 requires-python = ">=3.9"

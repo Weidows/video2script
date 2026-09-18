@@ -22,3 +22,6 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# 开发/测试产物（只保留 samples/demo* 作为示例输出）
+samples/mem_*/

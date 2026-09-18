@@ -40,10 +40,12 @@ def main() -> int:
         "--collect-all", "av",
         "--collect-submodules", "onnxruntime",
         "--hidden-import", "huggingface_hub",
+        "--paths", str(ROOT / "src"),
         "--name", "video2script",
-        str(ROOT / "src" / "video2script" / "cli.py"),
+        # 必须用绝对导入的入口；相对导入的 cli.py 被当 __main__ 跑会 ImportError
+        str(ROOT / "src" / "video2script" / "__main__.py"),
     ]
-    # GUI 单独打一个（同一个 spec 里放两个入口会互相覆盖）
+    # GUI 单独打一个（两个入口塞一个 spec 会互相覆盖）
     gui = [
         mode, "--noconfirm", "--clean",
         "--collect-all", "faster_whisper",
@@ -52,13 +54,10 @@ def main() -> int:
         "--collect-all", "av",
         "--collect-submodules", "onnxruntime",
         "--hidden-import", "huggingface_hub",
-        # 让打包后的 GUI 也能 import 包本体
-        "--hidden-import", "video2script",
         "--paths", str(ROOT / "src"),
         "--name", "video2script-gui",
-        str(ROOT / "src" / "video2script" / "gui.py"),
+        str(ROOT / "scripts" / "entry_gui.py"),
     ]
-    common += ["--paths", str(ROOT / "src")]
 
     for args, label in ((common, "CLI"), (gui, "GUI")):
         print(f"=== 打包 {label}（{platform.system()} / {platform.machine()}）")
